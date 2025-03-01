@@ -1,0 +1,39 @@
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-27 20:57:36
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-28 13:02:53
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-28 13:06:27
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-28 13:07:59
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-28 13:14:07
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-28 13:15:03
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-28 13:18:07
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-28 13:18:58
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-02-28 13:19:37
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+When in epoch 139:
+Validation loss:[277.6270751206989, 195.17770385742188, 81.89380197752692, 0.35410451889038086, 0.20146476685974885]
+Best loss:277.6270751206989

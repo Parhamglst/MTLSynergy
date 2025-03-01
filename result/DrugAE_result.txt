@@ -1,0 +1,15 @@
+---- start drugAE_32 train ----
+2025-02-27 07:55:41
+Best Loss:0.5545319903348026
+---- start drugAE_64 train ----
+2025-02-27 08:45:06
+Best Loss:0.5229873397627115
+---- start drugAE_128 train ----
+2025-02-27 09:43:58
+Best Loss:0.3538790014479847
+---- start drugAE_256 train ----
+2025-02-27 10:42:53
+Best Loss:0.35526855390296674
+---- start drugAE_512 train ----
+2025-02-27 11:27:20
+Best Loss:0.16484833250181885

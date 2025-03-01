@@ -1,0 +1,15 @@
+---- start cellLineAE_128 train ----
+2025-02-27 12:03:59
+Best Loss:0.006067592549536909
+---- start cellLineAE_256 train ----
+2025-02-27 12:06:20
+Best Loss:0.00570603417764817
+---- start cellLineAE_512 train ----
+2025-02-27 12:08:13
+Best Loss:0.004684832793261324
+---- start cellLineAE_1024 train ----
+2025-02-27 12:09:41
+Best Loss:0.007351977186543601
+---- start cellLineAE_2048 train ----
+2025-02-27 12:11:03
+Best Loss:0.008406714773071663

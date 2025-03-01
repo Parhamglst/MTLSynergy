@@ -40,7 +40,7 @@ class MTLSynergyDataset(Dataset):
 
     def __getitem__(self, idx):
         data = self.summary.iloc[idx]
-        d1_idx, d2_idx, c_idx, d1_ri, d2_ri, syn, syn_fold, sen_fold_1, sen_fold_2 = data
+        d1_idx, d2_idx, c_idx, d1_ri, d2_ri, syn, syn_fold, sen_fold_1, sen_fold_2, _ = data
         d1 = np.array(self.drugs.iloc[int(d1_idx)])
         d2 = np.array(self.drugs.iloc[int(d2_idx)])
         c_exp = np.array(self.cell_lines.iloc[int(c_idx)])
