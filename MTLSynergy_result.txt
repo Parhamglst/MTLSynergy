@@ -39,25 +39,24 @@ Validation loss:[277.6270751206989, 195.17770385742188, 81.89380197752692, 0.354
 Best loss:277.6270751206989
 --------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
 ---------------- Test Fold 0 ----------------
-2025-03-03 00:56:12
+2025-03-01 21:42:38
 --- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
---------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
----------------- Test Fold 0 ----------------
-2025-03-03 01:51:15
---- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
---------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
----------------- Test Fold 0 ----------------
-2025-03-03 01:52:18
---- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
---------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
----------------- Test Fold 0 ----------------
-2025-03-03 02:07:41
---- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
---------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
----------------- Test Fold 0 ----------------
-2025-03-03 02:08:36
---- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
---------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
----------------- Test Fold 0 ----------------
-2025-03-03 02:15:24
---- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+When in epoch 202:
+Validation loss:[279.97073819091656, 190.01547241210938, 89.29911810776284, 0.4318571984767914, 0.224290472567505]
+Best loss:279.97073819091656
+When in epoch 171:
+Validation loss:[294.10500770302957, 246.89669799804688, 46.65370396614918, 0.4529571235179901, 0.10164861531553666]
+Best loss:294.10500770302957
+When in epoch 400:
+Validation loss:[361.6358385175297, 282.8565979003906, 77.8122148454769, 0.6956542134284973, 0.2713715582336674]
+Best loss:357.56050139726705
+When in epoch 268:
+Validation loss:[223.36804412953447, 186.0711669921875, 36.63773359591733, 0.532741129398346, 0.126402412031301]
+Best loss:223.36804412953447
+--- Hyper parameters 1:{'learning_rate': 0.0001, 'hidden_neurons': [4096, 2048, 2048, 1024]} ---
+When in epoch 284:
+Validation loss:[282.965087095321, 201.3636474609375, 80.9906707412895, 0.3314298093318939, 0.27933908376211153]
+Best loss:282.965087095321
+When in epoch 400:
+Validation loss:[294.5200546127244, 247.6121826171875, 46.40522305044213, 0.4239865243434906, 0.07866242075125686]
+Best loss:286.9960791018739

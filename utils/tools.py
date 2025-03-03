@@ -72,9 +72,9 @@ def filter1(data, fold_test, flag=0):
     d1_features, d2_features, c_features, sen_fold = x
     y1, y2, y3, y4 = y
     if flag == 0:
-        remain = np.where(sen_fold != fold_test)
+        remain = sen_fold != fold_test
     else:
-        remain = np.where(sen_fold == fold_test)
+        remain = sen_fold == fold_test
     return (d1_features[remain], d2_features[remain], c_features[remain]), (
         y1[remain], y2[remain], y3[remain], y4[remain])
 

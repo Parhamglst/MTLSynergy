@@ -2,7 +2,6 @@
 
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from Dataset import MTLSynergyDataset
@@ -18,8 +17,11 @@ from scipy.stats import pearsonr
 import argparse
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, cohen_kappa_score, precision_score, \
     accuracy_score
+from torch.profiler import profile, record_function, ProfilerActivity
 
-device = torch.device('cuda')
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 
 
@@ -64,6 +66,8 @@ def fit(model, drugEncoder, cellLineEncoder, train_dataloader, optimizer, mse, c
         train_running_loss1 += (loss1.item() * num)
         train_running_loss3 += (loss3.item() * num)
 
+        x = tuple(t.to(device) for t in x)
+        y = tuple(t.to(device) for t in y)
         x_filter, y_filter = filter1((x, y), test_fold)
         d1_features, d2_features, c_features = x_filter
         d1_features = d1_features.float().to(device)
@@ -255,7 +259,7 @@ def calculate(result, name):
 
 epochs = 500
 patience = 100
-batch_size = 256
+batch_size = 4096
 mse = MSELoss(reduction='mean').to(device)
 cce = CategoricalCrossEntropyLoss().to(device)
 drugs = pd.read_csv('data/drug_features.csv')
@@ -305,8 +309,8 @@ for fold_test in range(0, Fold):
             inner_val_dataset = MTLSynergyDataset(drugs, cell_lines, inner_val_summary)
             inner_train_dataset = MTLSynergyDataset(drugs, cell_lines, inner_train_summary)
             inner_val_loader = DataLoader(inner_val_dataset, batch_size=batch_size, shuffle=False)
-            inner_train_loader = DataLoader(inner_train_dataset, batch_size=batch_size, shuffle=True, num_workers=2,
-                                            pin_memory=True, drop_last=True)
+            inner_train_loader = DataLoader(inner_train_dataset, batch_size=batch_size, shuffle=True, num_workers=12,
+                                            pin_memory=True, drop_last=True, prefetch_factor=2)
             inner_val_num = len(inner_val_dataset)
             inner_train_num = len(inner_train_dataset)
             model = MTLSynergy(hyper_parameters['hidden_neurons'], model_input).to(device)
@@ -343,7 +347,7 @@ for fold_test in range(0, Fold):
     train_dataset = MTLSynergyDataset(drugs, cell_lines, train_summary)
     train_num = len(train_dataset)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
-                              num_workers=2, pin_memory=True)
+                              num_workers=12, pin_memory=True, prefetch_factor=2)
     validation_dataset = MTLSynergyDataset(drugs, cell_lines, validation_summary)
     validation_num = len(validation_dataset)
     validation_loader = DataLoader(validation_dataset, batch_size=batch_size,
@@ -370,9 +374,12 @@ for fold_test in range(0, Fold):
         model_es(validation_result[0], model, save_path)
         if model_es.early_stop:
             with open(MTLSynergy_Result, 'a') as file:
-                file.write("When in epoch " + str(epoch - patience + 1) + ":\n")
-                file.write("Validation loss:" + str(validation_loss[epoch - patience]) + "\n")
-                file.write("Best loss:" + str(model_es.best_loss) + "\n")
+                stop_epoch = max(0, epoch - patience + 1)
+                file.write(f"When in epoch {stop_epoch}:\n")
+                val_loss_idx = min(epoch, patience) - patience
+                if val_loss_idx >= 0 and val_loss_idx < len(validation_loss):
+                    file.write(f"Validation loss: {validation_loss[val_loss_idx]}\n")
+                file.write(f"Best loss: {model_es.best_loss}\n")
             break
 
     model = MTLSynergy(best_hp['hidden_neurons'], model_input).to(device)
