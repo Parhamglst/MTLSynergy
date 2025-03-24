@@ -1,7 +1,10 @@
-ComboDrugGrowth_Nov2017*
+data/*
 __pycache__/*
 test.py
 DOSERESP.csv
 */__pycache__/*
 slurm*
 *.pth
+*.csv
+*.zip
+*.xlsx
