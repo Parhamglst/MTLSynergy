@@ -61,3 +61,7 @@ Best loss:277.6270751206989
 ---------------- Test Fold 0 ----------------
 2025-03-03 02:15:24
 --- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---
+--------- MTLSynergy with drugAE(128) cellLineAE(256) ---------
+---------------- Test Fold 0 ----------------
+2025-03-31 10:18:32
+--- Hyper parameters 0:{'learning_rate': 0.0001, 'hidden_neurons': [8192, 4096, 4096, 2048]} ---

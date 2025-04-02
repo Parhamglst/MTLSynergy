@@ -55,8 +55,10 @@ def double_data(data):
     return result
 
 
-def init_weights(modules):
+def init_weights(modules, exclude_prefix='chemBERTaModel'):
     for n, m in modules.items():
+        if exclude_prefix in n:
+            continue  # Skip ChemBERTa layers
         if isinstance(m, torch.nn.Sequential):
             for layer in m:
                 if isinstance(layer, torch.nn.Linear):

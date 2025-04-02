@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from Models import MTLSynergy, DrugAE, CellLineAE
 from static.constant import DrugAE_SaveBase, CellAE_SaveBase, MTLSynergy_SaveBase, MTLSynergy_Result, DrugAE_OutputDim, CellAE_OutputDim
-from Preprocess_Data import prepareDrug, prepareCellLine
+from Preprocess_Data_Old import prepareDrug, prepareCellLine
 import pandas as pd
 from scipy.spatial.distance import euclidean
 

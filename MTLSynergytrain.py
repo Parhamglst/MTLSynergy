@@ -11,7 +11,7 @@ import time
 import pandas as pd
 from utils.tools import EarlyStopping, set_seed, filter1, CategoricalCrossEntropyLoss
 from static.constant import Fold, DrugAE_SaveBase, CellAE_SaveBase, MTLSynergy_SaveBase, MTLSynergy_Result,DrugAE_OutputDim,CellAE_OutputDim
-from Models import MTLSynergy, DrugAE, CellLineAE
+from Models import MTLSynergy, DrugAE, CellLineAE, ChemBERTaEncoder
 import numpy as np
 from scipy.stats import pearsonr
 import argparse

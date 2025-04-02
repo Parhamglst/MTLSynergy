@@ -69,3 +69,22 @@ class MTLSynergy_LeaveCellOutDataset(Dataset):
         syn_label = np.array(score_classification(syn, self.syn_threshold))
         d1_label = np.array(score_classification(d1_ri, self.ri_threshold))
         return (d1, d2, c_exp), (np.array(syn), np.array(d1_ri), syn_label, d1_label)
+
+class mainDataset(Dataset):
+    def __init__(self, summary, cell_lines, syn_threshold=30, ri_threshold=50):
+        self.summary = summary
+        self.cell_lines = cell_lines
+        self.syn_threshold = syn_threshold
+        self.ri_threshold = ri_threshold
+
+    def __len__(self):
+        return self.summary.shape[0]
+
+    def __getitem__(self, idx):
+        data = self.summary.iloc[idx]
+        d_row, d_col, cell_line, ri_row, synergy_loewe = data['drug_row'], data['drug_col'], data['cell_line_name'], data['ri_row'], data['synergy_loewe']
+        d_col = str(d_col)
+        c_exp = np.array(self.cell_lines.loc[cell_line])
+        syn_label = np.array(score_classification(np.float64(synergy_loewe), self.syn_threshold))
+        d1_label = np.array(score_classification(np.float64(ri_row), self.ri_threshold))
+        return (d_row, d_col, c_exp), (np.array(np.float64(synergy_loewe), dtype=np.float64), np.array(ri_row, dtype=np.float64), syn_label, d1_label)

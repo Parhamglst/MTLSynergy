@@ -13,4 +13,6 @@ MTLSA_SaveBase = "save/MTLSA/"
 MTLSA_Result = "result/MTLSA_result.txt"
 MTLSynergy_SaveBase = "save/MTLSynergy/"
 MTLSynergy_Result = "result/MTLSynergy_result.txt"
-MTLSynergy_InputDim = 384
+MTLSynergy2_Result = "result/MTLSynergy2_result.txt"
+chemBERTa_output_dim = 384
+MTLSynergy_InputDim = chemBERTa_output_dim + CellAE_OutputDim
