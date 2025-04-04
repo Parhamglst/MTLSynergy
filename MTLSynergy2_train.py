@@ -170,11 +170,6 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
                 if model_es.early_stop or epoch == epochs - 1:
                     best_val_loss = model_es.best_loss
                     inner_results.append(best_val_loss)
-                    with open(MTLSynergy2_Result, 'a') as file:
-                        file.write("When in epoch " + str(epoch - patience + 1) + ":\n")
-                        file.write("Validation loss:" + str(inner_val_loss[epoch - patience]) + "\n")
-                        file.write("Best loss:" + str(model_es.best_loss) + "\n")
-                    break
         result_per_inner_fold_mean = np.array(inner_results).mean()
         result_per_hp.append(result_per_inner_fold_mean)
         hp_i += 1
@@ -214,14 +209,11 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
         
         model_es(val_loss, model, outer_save_path)
         if model_es.early_stop:
-            with open(MTLSynergy2_Result, 'a') as file:
-                stop_epoch = max(0, epoch - patience + 1)
-                file.write(f"When in epoch {stop_epoch}:\n")
-                val_loss_idx = min(epoch, patience) - patience
-                if val_loss_idx >= 0 and val_loss_idx < len(val_loss):
-                    file.write(f"Validation loss: {val_losses[val_loss_idx]}\n")
-                file.write(f"Best loss: {model_es.best_loss}\n")
+            print("Early stopping triggered.")
             break
+        print(f"Epoch {epoch+1}: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
+    # Load the best model
+    model.load_state_dict(torch.load(outer_save_path))
     # Evaluate on the test set
     test_loss = evaluate(model, drug_embeddings, cellLineAE.encoder, final_test_loader, mse, cce)
     outer_results.append(test_loss)
