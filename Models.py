@@ -103,22 +103,18 @@ class MTLSynergy(Module):
         return syn_out_1.squeeze(-1), d1_sen_out_1.squeeze(-1), syn_out_2, d1_sen_out_2
 
 class ChemBERTaEncoder(Module):
-    def __init__(self, device, model_name="DeepChem/ChemBERTa-77M-MLM", hidden_dim=768):
+    def __init__(self, model_name="DeepChem/ChemBERTa-77M-MLM", hidden_dim=768):
         super(ChemBERTaEncoder, self).__init__()
         self.model = AutoModelForMaskedLM.from_pretrained(model_name)
         self.hidden_dim = hidden_dim
-        self.device = device
-        self.model.to(device)
     
     def forward(self, smiles_embeddings):
-        smiles_embeddings.to(self.device)
         embeddings = self.model.roberta(smiles_embeddings).last_hidden_state[:, 0, :]
         return embeddings
 
 class MTLSynergy2(Module):
-    def __init__(self, hidden_neurons, chemBERTaModel, input_dim=MTLSynergy_InputDim):
+    def __init__(self, hidden_neurons, input_dim=MTLSynergy_InputDim):
         super(MTLSynergy2, self).__init__() 
-        self.chemBERTaModel = chemBERTaModel
         self.drug_cell_line_layer = Sequential(
             Linear(input_dim, hidden_neurons[0]),
             BatchNorm1d(hidden_neurons[0]),
@@ -146,10 +142,7 @@ class MTLSynergy2(Module):
         self.sensitivity_out_2 = Sequential(Linear(64, 2), Softmax(dim=1))
         init_weights(self._modules)
 
-    def forward(self, d1_smiles, d2_smiles, c_exp):
-        d1_embeddings = self.chemBERTaModel(d1_smiles)
-        d2_embeddings = self.chemBERTaModel(d2_smiles)
-        
+    def forward(self, d1_embeddings, d2_embeddings, c_exp):
         d1_c = self.drug_cell_line_layer(torch.cat((d1_embeddings, c_exp), 1))
         d2_c = self.drug_cell_line_layer(torch.cat((d2_embeddings, c_exp), 1))
         

@@ -15,6 +15,7 @@ from static.constant import CellAE_SaveBase, CellAE_OutputDim, MTLSynergy_InputD
 from Models import MTLSynergy2, ChemBERTaEncoder, CellLineAE
 from Dataset import mainDataset
 from Preprocess_Data import CCLE_DRUGCOMB_FILTERED, DRUGCOMB_FILTERED_TOKENIZED, DRUGCOMB_EMBEDDINGS
+import argparse
 
 hyper_parameters_candidate = [
     {
@@ -29,7 +30,7 @@ hyper_parameters_candidate = [
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def train(model, drug_embeddings, cellLineEncoder, train_loader, optimizer, mse, cce):
+def train(model, drug_embeddings, chemBERTa_model, cellLineEncoder, train_loader, optimizer, mse, cce):
     model.train()
     total_loss = 0.0
 
@@ -44,6 +45,8 @@ def train(model, drug_embeddings, cellLineEncoder, train_loader, optimizer, mse,
         d_row_embeddings = torch.stack([drug_embeddings[drug] for drug in d_row]).to(device)
         d_col_embeddings = torch.stack([drug_embeddings.get(drug, zero_embedding) for drug in d_col]).to(device)
 
+        d_row_embeddings = chemBERTa_model(d_row_embeddings)
+        d_col_embeddings = chemBERTa_model(d_col_embeddings)
 
         c_embeddings = cellLineEncoder(c_exp)
         
@@ -64,7 +67,7 @@ def train(model, drug_embeddings, cellLineEncoder, train_loader, optimizer, mse,
 
     return total_loss / len(train_loader)
 
-def evaluate(model, drug_embeddings, cellLineEncoder, val_loader, mse, cce):
+def evaluate(model, drug_embeddings, chemBERTa_model, cellLineEncoder, val_loader, mse, cce):
     model.eval()
     total_loss = 0.0
     
@@ -82,6 +85,9 @@ def evaluate(model, drug_embeddings, cellLineEncoder, val_loader, mse, cce):
                 for drug in d_col
             ]).to(device)
             
+            d_row_embeddings = chemBERTa_model(d_row_embeddings)
+            d_col_embeddings = chemBERTa_model(d_col_embeddings)
+            
             c_embeddings = cellLineEncoder(c_exp)
             
             pred_syn, pred_ri, pred_syn_class, pred_sen_class = model(d_row_embeddings, d_col_embeddings, c_embeddings)
@@ -97,7 +103,7 @@ def evaluate(model, drug_embeddings, cellLineEncoder, val_loader, mse, cce):
 patience = 100
 epochs = 10
 
-kf_outer = KFold(n_splits=5, shuffle=True, random_state=42)
+kf_outer = KFold(n_splits=3, shuffle=True, random_state=42)
 outer_results = []
 
 drugcomb_df = pd.read_csv(DRUGCOMB_FILTERED_TOKENIZED, delimiter=',', 
@@ -107,9 +113,15 @@ cell_line_df = pd.read_csv(CCLE_DRUGCOMB_FILTERED, index_col=0)
 drug_embeddings = torch.load(DRUGCOMB_EMBEDDINGS)
 drug_embeddings = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in drug_embeddings.items()}
 
+parser = argparse.ArgumentParser(description="Train MTLSynergy2 model with nested cross-validation.")
+parser.add_argument("--weight_dir", type=str, required=True, help="Directory to save model weights.")
+args = parser.parse_args()
+MTLSynergy_SaveBase = args.output_dir
+
 # Load CellLineAE
 cell_path = CellAE_SaveBase + str(CellAE_OutputDim) + '.pth'
 cellLineAE = CellLineAE(output_dim=CellAE_OutputDim).to(device)
+chemberta_model = ChemBERTaEncoder().to(device)
 print('---- start to load cellLineAE ----')
 cellLineAE.load_state_dict(torch.load(cell_path))
 cellLineAE.eval()
@@ -130,7 +142,7 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
         print("--- Hyper parameters " + str(hp_i) + ":" + str(hyper_parameters) + " ---")
         
         # Set up 4-Fold Inner Cross Validation
-        kf_inner = KFold(n_splits=5, shuffle=True, random_state=42)
+        kf_inner = KFold(n_splits=3, shuffle=True, random_state=42)
         inner_results = []
         for inner_fold, (train_idx, val_idx) in enumerate(kf_inner.split(train_val_df)):
             inner_save_path = f"{MTLSynergy_SaveBase}inner_fold_{outer_fold}_{inner_fold}.pth"
@@ -146,12 +158,13 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
             val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, pin_memory=True)
 
             # Initialize Model
-            chemberta_model = ChemBERTaEncoder(device=device)
-            
-            model = MTLSynergy2(hidden_neurons, chemberta_model).to(device)
+            model = MTLSynergy2(hidden_neurons)
+            if torch.cuda.device_count() > 1:
+                print(f"Using {torch.cuda.device_count()} GPUs!")
+                model = torch.nn.DataParallel(model)
+            model.to(device)
             model_es = EarlyStopping(patience=patience)
             optimizer = AdamW([
-                {'params': model.chemBERTaModel.parameters(), 'lr': 1e-5},  # Fine-tuning ChemBERTa
                 {'params': [p for n, p in model.named_parameters() if "chemBERTaModel" not in n], 'lr': hyper_parameters['learning_rate']}
             ])
 
@@ -162,10 +175,10 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
             best_val_loss = float('inf')
             inner_val_loss = []
             for epoch in range(epochs):
-                train_loss = train(model, drug_embeddings, cellLineAE.encoder, train_loader, optimizer, mse, cce)
-                val_loss = evaluate(model, drug_embeddings, cellLineAE.encoder, val_loader, mse, cce)
+                train_loss = train(model, drug_embeddings, chemberta_model, cellLineAE.encoder, train_loader, optimizer, mse, cce)
+                val_loss = evaluate(model, drug_embeddings, chemberta_model, cellLineAE.encoder, val_loader, mse, cce)
                 val_losses.append(val_loss)
-                print(f"    Epoch {epoch+1}: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
+                print(f"    Epoch {epoch+1}: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}", flush=True)
                 model_es(val_loss, model, inner_save_path)
                 if model_es.early_stop or epoch == epochs - 1:
                     best_val_loss = model_es.best_loss
@@ -189,10 +202,13 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
 
     # Retrain model using the best hyperparameters
     chemberta_model = ChemBERTaEncoder(device=device)
-    model = MTLSynergy2(best_hp['hidden_neurons'], chemberta_model, input_dim=MTLSynergy_InputDim).to(device)
+    model = MTLSynergy2(best_hp['hidden_neurons'], chemberta_model, input_dim=MTLSynergy_InputDim)
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs!")
+        model = torch.nn.DataParallel(model)
+    model.to(device)
     model_es = EarlyStopping(patience=patience)
     optimizer = AdamW([
-                {'params': model.chemBERTaModel.parameters(), 'lr': 1e-5},  # Fine-tuning ChemBERTa
                 {'params': [p for n, p in model.named_parameters() if "chemBERTaModel" not in n], 'lr': best_hp['learning_rate']}
             ])
     mse = MSELoss(reduction='mean').to(device)
@@ -201,10 +217,10 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
     train_losses = []
     val_losses = []
     for epoch in range(epochs):
-        train_loss = train(model, drug_embeddings, cellLineAE.encoder, final_train_loader, optimizer, mse, cce)
+        train_loss = train(model, drug_embeddings, chemberta_model, cellLineAE.encoder, final_train_loader, optimizer, mse, cce)
         train_losses.append(train_loss)
         
-        val_loss = evaluate(model, drug_embeddings, cellLineAE.encoder, final_val_loader, mse, cce)
+        val_loss = evaluate(model, drug_embeddings, chemberta_model, cellLineAE.encoder, final_val_loader, mse, cce)
         val_losses.append(val_loss)
         
         model_es(val_loss, model, outer_save_path)
@@ -215,7 +231,7 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
     # Load the best model
     model.load_state_dict(torch.load(outer_save_path))
     # Evaluate on the test set
-    test_loss = evaluate(model, drug_embeddings, cellLineAE.encoder, final_test_loader, mse, cce)
+    test_loss = evaluate(model, drug_embeddings, chemberta_model, cellLineAE.encoder, final_test_loader, mse, cce)
     outer_results.append(test_loss)
 
     print(f"Outer Fold {outer_fold+1} Test Loss: {test_loss:.4f}\n")

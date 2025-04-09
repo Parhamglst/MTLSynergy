@@ -17,13 +17,13 @@ class EarlyStopping():
     def __call__(self, val_loss, model, save_path):
         if self.best_loss == None:
             self.best_loss = val_loss
-            torch.save(model.state_dict(), save_path)
+            torch.save(model.module.state_dict() if hasattr(model, "module") else model.state_dict(), save_path)
         elif self.best_loss - val_loss > self.min_delta:
             self.best_loss = val_loss
             # reset counter if validation loss improves
             self.counter = 0
             # save weights
-            torch.save(model.state_dict(), save_path)
+            torch.save(model.module.state_dict() if hasattr(model, "module") else model.state_dict(), save_path)
         elif self.best_loss - val_loss < self.min_delta:
             self.counter += 1
             print(f"INFO: Early stopping counter {self.counter} of {self.patience}")
