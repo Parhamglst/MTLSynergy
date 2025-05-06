@@ -2,11 +2,11 @@
 
 ## Initialization
 
-Make a conda environment using python version 3.13.2 and the packages inside the requirements.txt file using the setup.sh file.
+Create a conda environment using python version 3.13.2 and install the packages inside the requirements.txt file using the setup.sh file.
 
 ### Model Weights
 
-Make sure the model weights are stored in the save folder similar to this. 
+Make sure the model weights are stored in the save folder similar to this.
 
 ```Markdown
 save/
