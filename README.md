@@ -45,3 +45,6 @@ python3 run_simulation.py
 - **`--model_version`, `-v`**
   `'1'` is the paper's original model, `'2'` is with ChemBERTa and expanded dataset.
 
+## Credits
+
+This project is a fork of [MTLSynergy](https://github.com/TOJSSE-iData/MTLSynergy), originally developed by [nianwuuo](https://github.com/nianwuluo).
