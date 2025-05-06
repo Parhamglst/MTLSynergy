@@ -2,3 +2,7 @@ torch
 numpy
 sklearn
 pandas
+pubchempy
+transformers
+rdkit
+scikit-learn

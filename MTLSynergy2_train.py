@@ -10,6 +10,7 @@ from sklearn.model_selection import KFold, train_test_split
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import AutoModelForMaskedLM, AutoTokenizer, pipeline, RobertaModel, RobertaTokenizer
+import argparse
 
 from static.constant import CellAE_SaveBase, CellAE_OutputDim, MTLSynergy_InputDim, MTLSynergy_SaveBase, MTLSynergy2_Result
 from Models import MTLSynergy2, ChemBERTaEncoder, CellLineAE
@@ -100,14 +101,21 @@ def evaluate(model, drug_embeddings, chemBERTa_model, cellLineEncoder, val_loade
             total_loss += loss.item()
     return total_loss / len(val_loader)
 
-patience = 100
-epochs = 10
+patience = 3
+epochs = 15
+batch_size = 128
+
+parser = argparse.ArgumentParser(description="Train MTLSynergy2 model with nested cross-validation.")
+parser.add_argument("--weight_dir", type=str, required=True, help="Directory to save model weights.")
+args = parser.parse_args()
+MTLSynergy_SaveBase = args.weight_dir + '/'
 
 kf_outer = KFold(n_splits=3, shuffle=True, random_state=42)
 outer_results = []
 
 drugcomb_df = pd.read_csv(DRUGCOMB_FILTERED_TOKENIZED, delimiter=',', 
-                          dtype={'drug_row': str, 'drug_col': str, 'cell_line_name': str, 'synergy_loewe': float, 'ri_row': float, 'ri_col': float})
+                          dtype={'drug_row': str, 'drug_col': str, 'cell_line_name': str, 'synergy_loewe': float, 'ri_row': float, 'ri_col': float, 'ic50_row': float, 
+                                 'synergy_zip': float, 'synergy_bliss': float, 'synergy_hsa': float})
 
 cell_line_df = pd.read_csv(CCLE_DRUGCOMB_FILTERED, index_col=0)
 drug_embeddings = torch.load(DRUGCOMB_EMBEDDINGS)
@@ -196,13 +204,14 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
     final_val_dataset = mainDataset(val_subset, cell_line_df)
     final_test_dataset = mainDataset(test_df, cell_line_df)
 
-    final_train_loader = DataLoader(final_train_dataset, batch_size=32, shuffle=True, pin_memory=True)
-    final_val_loader = DataLoader(final_val_dataset, batch_size=32, shuffle=False, pin_memory=True)
-    final_test_loader = DataLoader(final_test_dataset, batch_size=32, shuffle=False, pin_memory=True)
+    final_train_loader = DataLoader(final_train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True)
+    final_val_loader = DataLoader(final_val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
+    final_test_loader = DataLoader(final_test_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
 
     # Retrain model using the best hyperparameters
-    chemberta_model = ChemBERTaEncoder(device=device)
-    model = MTLSynergy2(best_hp['hidden_neurons'], chemberta_model, input_dim=MTLSynergy_InputDim)
+    chemberta_model = ChemBERTaEncoder()
+    chemberta_model.to(device)
+    model = MTLSynergy2(best_hp['hidden_neurons'], input_dim=MTLSynergy_InputDim)
     if torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs!")
         model = torch.nn.DataParallel(model)

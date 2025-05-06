@@ -136,23 +136,10 @@ class MTLSynergy2(Module):
             Linear(hidden_neurons[3], 64),
             ReLU(True)
         )
-        
-        # Drug synergy output layers
         self.synergy_out_1 = Linear(128, 1)
         self.synergy_out_2 = Sequential(Linear(128, 2), Softmax(dim=1))
-        
-        self.bliss_out = Linear(128, 1)
-        
-        self.zip_out = Linear(128, 1)
-        
-        self.hsa_out = Linear(128, 1)
-        
-        # Drug sensitivity output layers
         self.sensitivity_out_1 = Linear(64, 1)
         self.sensitivity_out_2 = Sequential(Linear(64, 2), Softmax(dim=1))
-        
-        self.ic50 = Linear(64, 1)
-        
         init_weights(self._modules)
 
     def forward(self, d1_embeddings, d2_embeddings, c_exp):
@@ -164,12 +151,7 @@ class MTLSynergy2(Module):
         
         syn_out_1 = self.synergy_out_1(syn)
         syn_out_2 = self.synergy_out_2(syn)
-        bliss_out = self.bliss_out(syn)
-        zip_out = self.zip_out(syn)
-        hsa_out = self.hsa_out(syn)
-        
         d1_sen_out_1 = self.sensitivity_out_1(d1_sen)
         d1_sen_out_2 = self.sensitivity_out_2(d1_sen)
-        ic50_out = self.ic50(d1_sen)
         
-        return syn_out_1.squeeze(-1), d1_sen_out_1.squeeze(-1), syn_out_2, d1_sen_out_2, bliss_out.squeeze(-1), zip_out.squeeze(-1), hsa_out.squeeze(-1), ic50_out.squeeze(-1)
+        return syn_out_1.squeeze(-1), d1_sen_out_1.squeeze(-1), syn_out_2, d1_sen_out_2

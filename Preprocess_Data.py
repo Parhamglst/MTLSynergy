@@ -5,6 +5,8 @@ from Preprocess_Data_Old import remove_ensembl, CELL_LINES_GENES_FILTERED, name_
 import re
 from transformers import RobertaTokenizer
 import torch
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
 
 CHEMBL_DATASET = './data/chembl_35_chemreps.txt'
 CHEMBL_MAPPINGS = './data/chembl_uniprot_mapping.txt'
@@ -17,6 +19,8 @@ DRUGCOMB_FILTERED_TOKENIZED = './data/DrugComb_filtered_tokenized.csv'
 DRUGCOMB_CELLLINE_FILTERED = './data/DrugComb_CellLine_filtered.csv'
 DRUGCOMB_EMBEDDINGS = './data/DrugComb_embeddings.pt'
 DRUGCOMB_FILTERED = './data/DrugComb_filtered.csv'
+DOSES = './data/doses_CssSyn2020_1.csv'
+CONC_IC50 = './data/conc_ic50.csv'
 
 def get_smiles(drug_name_or_cas, drug_smiles):
     if drug_name_or_cas in drug_smiles:
@@ -173,6 +177,133 @@ def _drugcomb_tokenized():
     # Save embeddings
     torch.save(embeddings, DRUGCOMB_EMBEDDINGS)
 
+def drugcomb_conc_ic50_filter():
+    df_conc = pd.read_csv(DOSES, delimiter='|')
+    df_ic50 = pd.read_csv(DRUGCOMB_FILTERED_TOKENIZED)
+    
+    def keep_conc(df):
+        df['conc_r'] = pd.to_numeric(df['conc_r'], errors='coerce')
+        df['conc_c'] = pd.to_numeric(df['conc_c'], errors='coerce')
+
+        df1 = df[(df['conc_r'] > 0) & (df['conc_c'] == 0)]
+        df2 = df[(df['conc_c'] > 0) & (df['conc_r'] == 0)]
+
+        
+        df1 = df1[['drug_row', 'cell_line_name', 'conc_r', 'inhibition']]
+        df2 = df2[['drug_col', 'cell_line_name', 'conc_c', 'inhibition']]
+        df1.columns = ['drug_name', 'cell_line', 'concentration', 'inhibition']
+        df2.columns = ['drug_name', 'cell_line', 'concentration', 'inhibition']
+        out = pd.concat([df1, df2], ignore_index=True)
+        # Group by and average inhibition values
+        out = out.groupby(['drug_name', 'cell_line', 'concentration'], as_index=False).agg({'inhibition': 'mean'})
+
+        return out
+    
+    def keep_ic50(df):
+        df1 = df[df['ic50_row'] > 0]
+        df2 = df[df['ic50_col'] > 0]
+        
+        df1 = df1[['drug_row', 'cell_line_name', 'ic50_row']]
+        df2 = df2[['drug_col', 'cell_line_name', 'ic50_col']]
+        
+        df1.columns = ['drug_name', 'cell_line', 'ic50']
+        df2.columns = ['drug_name', 'cell_line', 'ic50']
+        
+        out = pd.concat([df1, df2], ignore_index=True)
+        out.drop_duplicates(subset=['drug_name', 'cell_line'], inplace=True)
+        
+        return out
+    df_conc = keep_conc(df_conc)
+    df_ic50 = keep_ic50(df_ic50)
+
+    final_df = pd.merge(df_conc, df_ic50, on=['drug_name', 'cell_line'])
+
+    final_df = final_df[['drug_name', 'cell_line', 'concentration', 'inhibition', 'ic50']]
+    assert final_df.shape[0] == final_df[['drug_name', 'cell_line', 'concentration']].drop_duplicates().shape[0]
+    
+    final_df.to_csv(CONC_IC50, index=False)
+    return
+
+def fit_dose_response():
+    def four_param_logistic(x, A, B, C, D):
+        return D + (A - D) / (1.0 + (x / C)**B)
+    
+    df = pd.read_csv(CONC_IC50)
+    df['concentration'] = pd.to_numeric(df['concentration'], errors='coerce')
+    df['inhibition'] = pd.to_numeric(df['inhibition'], errors='coerce')
+    df['ic50'] = pd.to_numeric(df['ic50'], errors='coerce')
+    
+    grouped = df.groupby(['drug_name', 'cell_line'])
+
+    results = []
+    n = 0
+    m = 0
+    for (drug, cell), group in grouped:
+        group = group.sort_values(by='concentration')
+        conc = group['concentration'].values
+        inhib = group['inhibition'].values
+        ic50 = group['ic50'].iloc[0]
+        if len(conc) < 4 or len(inhib) < 4:
+            print(f"Not enough data for {drug} | {cell}")
+            continue
+        try:
+            log_conc = conc[conc > 0]
+            guess_ic50 = 10 ** np.mean(log_conc) if len(log_conc) else np.median(conc)
+            initial_guess = [min(inhib), 1, guess_ic50, max(inhib)]
+            popt, _ = curve_fit(four_param_logistic, conc, inhib, p0=initial_guess)
+            A, B, C, D = popt
+            results.append({
+                'drug_name': drug,
+                'cell_line': cell,
+                'min': A,
+                'max': D,
+                'ic50': C,
+                'hill_slope': B
+            })
+        except RuntimeError:
+            print(f"Fit failed for {drug}-{cell}")
+            m += 1
+
+        n += 1
+        if n == 5000:
+            print(f"{m} fits failed out of {n} attempts")
+            break
+    
+    # Random drug-cell line to plot
+    random_drug_cell = results[np.random.randint(0, len(results))]
+    drug_name = random_drug_cell['drug_name']
+    cell_line = random_drug_cell['cell_line']
+
+    # Filter and clean
+    subset = df[(df['drug_name'] == drug_name) & (df['cell_line'] == cell_line)]
+    conc = subset['concentration'].values
+    inhib = subset['inhibition'].values
+    mask = conc > 0
+    conc = conc[mask]
+    inhib = inhib[mask]
+
+    # Extract fit parameters
+    ic50 = random_drug_cell['ic50']
+    A1 = random_drug_cell['min']
+    A2 = random_drug_cell['max']
+    hill_slope = random_drug_cell['hill_slope']
+
+    # Generate fit curve
+    x = np.logspace(np.log10(min(conc)), np.log10(max(conc)), 100)
+    y = four_param_logistic(x, A1, hill_slope, ic50, A2)
+
+    # Plot
+    plt.semilogx(conc, inhib, 'o', label='Data')
+    plt.semilogx(x, y, label='Fitted Curve')
+    plt.axvline(x=ic50, color='r', linestyle='--', label='IC50')
+    plt.xlabel('Concentration')
+    plt.ylabel('Inhibition')
+    plt.title(f'Drug: {drug_name}, Cell Line: {cell_line}')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    return
+
 
 if __name__ == '__main__':
-    drugcomb_filtered()
+    fit_dose_response()
