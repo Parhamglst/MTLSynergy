@@ -69,7 +69,7 @@ def prepareCellLine(cellLine):
     cellLineFeatures = cellLineDf.loc[depmap_id]
     meanStds = pd.read_csv(CELL_LINES_MEAN_STD)
     for i in range(len(cellLineFeatures)):
-        cellLineFeatures[i] = (cellLineFeatures[i] - meanStds['mean'][i]) / meanStds['std'][i]
+        cellLineFeatures.iloc[i] = (cellLineFeatures.iloc[i] - meanStds['mean'].iloc[i]) / meanStds['std'].iloc[i]
     return np.array(cellLineFeatures)
 
 def normalizeCellLineData(cellLineDf, meanStdDf):
