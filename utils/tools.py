@@ -124,3 +124,39 @@ class CategoricalCrossEntropyLoss(torch.nn.Module):
         tol_loss = -torch.sum(y_true * torch.log(y_pred), dim=1)
         loss = torch.mean(tol_loss, dim=0)
         return loss
+    
+
+class GradNormController:
+    def __init__(self, task_weights, alpha=1.5):
+        self.task_weights = task_weights
+        self.alpha = alpha
+        self.initial_losses = None
+
+    def compute_gradnorm_loss(self, shared_params, task_losses):
+        # Get gradient norms for each task
+        norms = []
+        target_device = task_losses[0].device if task_losses else self.task_weights[0].device # Fallback if task_losses is empty
+        for i, loss in enumerate(task_losses):
+            self.task_weights[i].retain_grad()
+            (self.task_weights[i] * loss).backward(retain_graph=True)
+            grad = torch.autograd.grad(
+                self.task_weights[i] * loss, shared_params,
+                retain_graph=True, create_graph=True
+            )
+            norm = torch.linalg.norm(torch.cat([g.flatten().to(target_device) for g in grad]))
+            norms.append(norm)
+
+        norms = torch.stack(norms)
+        norms_mean = norms.mean()
+
+        if self.initial_losses is None:
+            self.initial_losses = torch.tensor([l.item() for l in task_losses], device=target_device)
+
+        loss_ratios = torch.tensor([l.item() / init for l, init in zip(task_losses, self.initial_losses)], device=target_device)
+        mean_loss_ratio = loss_ratios.mean()
+        inverse_train_rates = loss_ratios / mean_loss_ratio
+
+        target_norms = norms_mean * (inverse_train_rates ** self.alpha)
+        grad_norm_loss = F.l1_loss(norms, target_norms.detach())
+
+        return grad_norm_loss
