@@ -137,8 +137,6 @@ class GradNormController:
         norms = []
         target_device = task_losses[0].device if task_losses else self.task_weights[0].device # Fallback if task_losses is empty
         for i, loss in enumerate(task_losses):
-            self.task_weights[i].retain_grad()
-            (self.task_weights[i] * loss).backward(retain_graph=True)
             grad = torch.autograd.grad(
                 self.task_weights[i] * loss, shared_params,
                 retain_graph=True, create_graph=True
@@ -150,13 +148,16 @@ class GradNormController:
         norms_mean = norms.mean()
 
         if self.initial_losses is None:
-            self.initial_losses = torch.tensor([l.item() for l in task_losses], device=target_device)
+            self.initial_losses = torch.stack([l.detach() for l in task_losses])
+            self.initial_losses = torch.clamp(self.initial_losses, min=1e-6)
 
-        loss_ratios = torch.tensor([l.item() / init for l, init in zip(task_losses, self.initial_losses)], device=target_device)
-        mean_loss_ratio = loss_ratios.mean()
-        inverse_train_rates = loss_ratios / mean_loss_ratio
+        with torch.no_grad():
+            loss_ratios = torch.tensor([l.item() / init for l, init in zip(task_losses, self.initial_losses)], device=target_device)
+            mean_loss_ratio = loss_ratios.mean()
+            inverse_train_rates = loss_ratios / mean_loss_ratio
 
-        target_norms = norms_mean * (inverse_train_rates ** self.alpha)
+            target_norms = norms_mean * (inverse_train_rates ** self.alpha)
+        
         grad_norm_loss = F.l1_loss(norms, target_norms.detach())
 
         return grad_norm_loss

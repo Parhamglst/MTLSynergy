@@ -8,3 +8,4 @@ slurm*
 *.csv
 *.zip
 *.xlsx
+plots/*

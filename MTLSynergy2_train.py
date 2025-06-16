@@ -36,10 +36,7 @@ import argparse
 
 hyper_parameters_candidate = [
     {"learning_rate": 0.0001, "hidden_neurons": [8192, 4096, 4096, 2048]},
-    # {
-    #     'learning_rate': 0.0001,
-    #     'hidden_neurons': [4096, 2048, 2048, 1024]
-    # },
+    {"learning_rate": 0.00001, "hidden_neurons": [8192, 4096, 4096, 2048]},
 ]
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -121,14 +118,22 @@ def train(
             mse(pred_ic50, ic50),
         ]
 
-        scaled_losses = [task_weights[i] * losses[i] for i in range(len(losses))]
+        weights_soft = torch.softmax(task_weights, dim=0)
+        scaled_losses = [weights_soft[i] * losses[i] for i in range(len(losses))]
         loss = sum(scaled_losses)
-        shared_params = list(model.drug_cell_line_layer.parameters())
+        if isinstance(model, torch.nn.DataParallel):
+            shared_params = list(model.module.drug_cell_line_layer.parameters())
+        else:
+            shared_params = list(model.drug_cell_line_layer.parameters())
         gradnorm_loss = gradNormController.compute_gradnorm_loss(shared_params, losses)
-        total_loss = loss + gradnorm_loss
+        gradnorm_loss = torch.clamp(gradnorm_loss, max=1.0)
+        total_loss = loss + 0.1 * gradnorm_loss
+        total_loss = loss
         total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        total_loss_epoch += [loss.item() for loss in losses]
+        
+        total_loss_epoch += [l.item() for l in losses]
 
     return total_loss_epoch / len(train_loader)
 
@@ -212,13 +217,12 @@ def evaluate(
             ]
 
             if task_weights is not None:
-                scaled_losses = [
-                    task_weights[i] * losses[i] for i in range(len(losses))
-                ]
+                weights_soft = torch.softmax(task_weights, dim=0)
+                scaled_losses = [weights_soft[i] * losses[i] for i in range(len(losses))]
                 loss = sum(scaled_losses)
             else:
                 loss = sum(losses)
-            total_loss_epoch += [loss.item() for loss in losses]
+            total_loss_epoch += [l.item() for l in losses]
             total_loss += loss.item()
     return total_loss_epoch / len(val_loader), total_loss / len(val_loader)
 
@@ -310,9 +314,11 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
                 val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True
             )
 
-            # Initialize Model
+            # Initialization of model, optimizer, and loss functions
             model = MTLSynergy2(hidden_neurons, input_dim=MTLSynergy_InputDim)
-            task_weights = nn.Parameter(torch.ones(8))
+            task_weights = nn.Parameter(torch.ones(8).to(device))
+            running_baselines = torch.ones(8).to(device)
+            alpha = 0.9
             gradNormController = GradNormController(task_weights)
             if torch.cuda.device_count() > 1:
                 print(f"Using {torch.cuda.device_count()} GPUs!")
@@ -350,6 +356,8 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
                     cce,
                     gradNormController,
                     task_weights,
+                    alpha=alpha,
+                    running_baselines=running_baselines,
                 )
                 val_loss_list, val_loss = evaluate(
                     model,
@@ -402,6 +410,12 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
         model = torch.nn.DataParallel(model)
     model.to(device)
     model_es = EarlyStopping(patience=patience)
+    
+    task_weights = nn.Parameter(torch.ones(8).to(device))
+    running_baselines = torch.ones(8).to(device)
+    alpha = 0.9
+    gradNormController = GradNormController(task_weights)
+    
     optimizer = AdamW(
         [
             {
@@ -415,8 +429,6 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
     )
     mse = MSELoss(reduction="mean").to(device)
     cce = CategoricalCrossEntropyLoss().to(device)
-    task_weights = nn.Parameter(torch.ones(8))
-    gradNormController = GradNormController(task_weights)
 
     for epoch in range(epochs):
         train_loss = train(
@@ -450,9 +462,6 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
         if model_es.early_stop:
             print("Early stopping triggered.")
             break
-        print(
-            f"Epoch {epoch+1}: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}"
-        )
     # Load the best model
     model.load_state_dict(torch.load(outer_save_path))
     # Evaluate on the test set
@@ -475,4 +484,4 @@ for outer_fold, (train_val_idx, test_idx) in enumerate(kf_outer.split(drugcomb_d
 
 # Compute final test performance
 final_score = np.mean(outer_results)
-print(f"Final Nested CV Test Loss: {final_score:.4f}")
+print(f"Final Nested CV Test Loss: {final_score}")
