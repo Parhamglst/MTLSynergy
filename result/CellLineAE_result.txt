@@ -13,3 +13,32 @@ Best Loss:0.007351977186543601
 ---- start cellLineAE_2048 train ----
 2025-02-27 12:11:03
 Best Loss:0.008406714773071663
+---- start cellLineAE_128 train ----
+2025-05-23 13:04:53
+---- start cellLineAE_128 train ----
+2025-05-23 13:16:59
+---- Before loss:0.006067592634686402
+---- start cellLineAE_128 train ----
+2025-05-23 13:17:58
+---- start cellLineAE_128 train ----
+2025-05-23 13:19:31
+---- Before loss:0.6703668264711904
+---- start cellLineAE_128 train ----
+2025-05-23 13:29:26
+---- start cellLineAE_128 train ----
+2025-05-23 13:30:02
+---- start cellLineAE_128 train ----
+2025-05-23 15:04:17
+Best Loss:0.18933432950912465
+---- start cellLineAE_256 train ----
+2025-05-23 15:12:43
+Best Loss:0.18034436821852776
+---- start cellLineAE_512 train ----
+2025-05-23 15:21:01
+Best Loss:0.060072532641684176
+---- start cellLineAE_1024 train ----
+2025-05-23 15:29:31
+Best Loss:0.00899182173130692
+---- start cellLineAE_2048 train ----
+2025-05-23 15:37:55
+Best Loss:0.009547461639655221

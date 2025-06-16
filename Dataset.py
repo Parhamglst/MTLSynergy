@@ -40,13 +40,29 @@ class MTLSynergyDataset(Dataset):
 
     def __getitem__(self, idx):
         data = self.summary.iloc[idx]
-        d1_idx, d2_idx, c_idx, d1_ri, d2_ri, syn, syn_fold, sen_fold_1, sen_fold_2, _ = data
+        (
+            d1_idx,
+            d2_idx,
+            c_idx,
+            d1_ri,
+            d2_ri,
+            syn,
+            syn_fold,
+            sen_fold_1,
+            sen_fold_2,
+            _,
+        ) = data
         d1 = np.array(self.drugs.iloc[int(d1_idx)])
         d2 = np.array(self.drugs.iloc[int(d2_idx)])
         c_exp = np.array(self.cell_lines.iloc[int(c_idx)])
         syn_label = np.array(score_classification(syn, self.syn_threshold))
         d1_label = np.array(score_classification(d1_ri, self.ri_threshold))
-        return (d1, d2, c_exp, np.array(sen_fold_1)), (np.array(syn), np.array(d1_ri), syn_label, d1_label)
+        return (d1, d2, c_exp, np.array(sen_fold_1)), (
+            np.array(syn),
+            np.array(d1_ri),
+            syn_label,
+            d1_label,
+        )
 
 
 class MTLSynergy_LeaveCellOutDataset(Dataset):
@@ -62,13 +78,25 @@ class MTLSynergy_LeaveCellOutDataset(Dataset):
 
     def __getitem__(self, idx):
         data = self.summary.iloc[idx]
-        d1_idx, d2_idx, c_idx, d1_ri, d2_ri, syn, syn_fold, sen_fold_1, sen_fold_2,fold = data
+        (
+            d1_idx,
+            d2_idx,
+            c_idx,
+            d1_ri,
+            d2_ri,
+            syn,
+            syn_fold,
+            sen_fold_1,
+            sen_fold_2,
+            fold,
+        ) = data
         d1 = np.array(self.drugs.iloc[int(d1_idx)])
         d2 = np.array(self.drugs.iloc[int(d2_idx)])
         c_exp = np.array(self.cell_lines.iloc[int(c_idx)])
         syn_label = np.array(score_classification(syn, self.syn_threshold))
         d1_label = np.array(score_classification(d1_ri, self.ri_threshold))
         return (d1, d2, c_exp), (np.array(syn), np.array(d1_ri), syn_label, d1_label)
+
 
 class mainDataset(Dataset):
     def __init__(self, summary, cell_lines, syn_threshold=30, ri_threshold=50):
@@ -82,9 +110,30 @@ class mainDataset(Dataset):
 
     def __getitem__(self, idx):
         data = self.summary.iloc[idx]
-        d_row, d_col, cell_line, ri_row, synergy_loewe = data['drug_row'], data['drug_col'], data['cell_line_name'], data['ri_row'], data['synergy_loewe']
+        d_row, d_col, cell_line, synergy_loewe, ri_row, bliss, zip_score, hsa, ic50 = (
+            data["drug_row"],
+            data["drug_col"],
+            data["cell_line_name"],
+            data["synergy_loewe"],
+            data["ri_row"],
+            data["synergy_bliss"],
+            data["synergy_zip"],
+            data["synergy_hsa"],
+            data["ic50_row"],
+        )
         d_col = str(d_col)
         c_exp = np.array(self.cell_lines.loc[cell_line])
-        syn_label = np.array(score_classification(np.float64(synergy_loewe), self.syn_threshold))
+        syn_label = np.array(
+            score_classification(np.float64(synergy_loewe), self.syn_threshold)
+        )
         d1_label = np.array(score_classification(np.float64(ri_row), self.ri_threshold))
-        return (d_row, d_col, c_exp), (np.array(np.float64(synergy_loewe), dtype=np.float64), np.array(ri_row, dtype=np.float64), syn_label, d1_label)
+        return (d_row, d_col, c_exp), (
+            np.array(np.float64(synergy_loewe), dtype=np.float64),
+            np.array(ri_row, dtype=np.float64),
+            syn_label,
+            d1_label,
+            np.array(np.float64(bliss), dtype=np.float64),
+            np.array(np.float64(zip_score), dtype=np.float64),
+            np.array(np.float64(hsa), dtype=np.float64),
+            np.array(np.float64(ic50), dtype=np.float64),
+        )

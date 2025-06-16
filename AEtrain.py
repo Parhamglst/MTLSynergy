@@ -15,6 +15,7 @@ import pandas as pd
 from utils.tools import EarlyStopping, set_seed
 from static.constant import DrugAE_OutputDim_Optional, CellAE_OutputDim_Optional, DrugAE_SaveBase, CellAE_SaveBase, \
     DrugAE_Result, CellLineAE_Result
+from Preprocess_Data import CELL_LINES_GENES_FILTERED_NORMALIZED
 
 device = torch.device('cuda')
 
@@ -49,52 +50,52 @@ def validate(model, validation_dataloader, validation_num, criterion):
 
 
 # drug AE train
-drug_features_data = pd.read_csv('data/drug_features.csv')
-drug_num = drug_features_data.shape[0]
-print("drugs num:", drug_num)
-drug_bz = 32
-drug_lr = 0.0001
-drug_epochs = 3000
-drug_patience = 100
-for drug_outputdim in DrugAE_OutputDim_Optional:
-    set_seed(1)
-    drugAE = DrugAE(output_dim=drug_outputdim).to(device)
-    drug_optimizer = Adam(drugAE.parameters(), lr=drug_lr)
-    drug_loss_fn = MSELoss(reduction='mean').to(device)
-    drug_dataset = DrugDataset(drug_features_data)
-    drug_feature_loader = DataLoader(drug_dataset, batch_size=drug_bz, shuffle=True)
-    validation_loader = DataLoader(drug_dataset, batch_size=drug_bz)
-    drug_es = EarlyStopping(patience=drug_patience)
-    path = DrugAE_SaveBase + str(drug_outputdim) + ".pth"
-    with open(DrugAE_Result, 'a') as file:
-        file.write("---- start drugAE_" + str(drug_outputdim) + " train ----\n")
-        file.write(str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + "\n")
-    if os.path.exists(path):
-        print('---- start to load drugAE_' + str(drug_outputdim) + ' ----')
-        drugAE.load_state_dict(torch.load(path))
-        drug_es.best_loss = validate(drugAE, validation_loader, drug_num, drug_loss_fn)
-        with open(DrugAE_Result, 'a') as file:
-            file.write("---- Before loss:" + str(drug_es.best_loss) + "\n")
-    # drug_train_loss = []
-    print("---- start drugAE_" + str(drug_outputdim) + " train ----")
-    for epoch in range(drug_epochs):
-        print(f"Epoch {epoch + 1} of {drug_epochs}")
-        if drug_es.early_stop:
-            break
-        train_epoch_loss = fit(
-            drugAE, drug_feature_loader, drug_num, drug_optimizer, drug_loss_fn
-        )
-        # drug_train_loss.append(train_epoch_loss)
-        validation_loss = validate(drugAE, validation_loader, drug_num, drug_loss_fn)
-        drug_es(validation_loss, drugAE, path)
-        print(f"Train Loss: {train_epoch_loss:.4f}")
-        print(f"Validation Loss: {validation_loss:.4f}")
-    print(f"Best Loss:{drug_es.best_loss:.4f}")
-    with open(DrugAE_Result, 'a') as file:
-        file.write("Best Loss:" + str(drug_es.best_loss) + "\n")
+# drug_features_data = pd.read_csv('data/drug_features.csv')
+# drug_num = drug_features_data.shape[0]
+# print("drugs num:", drug_num)
+# drug_bz = 32
+# drug_lr = 0.0001
+# drug_epochs = 3000
+# drug_patience = 100
+# for drug_outputdim in DrugAE_OutputDim_Optional:
+#     set_seed(1)
+#     drugAE = DrugAE(output_dim=drug_outputdim).to(device)
+#     drug_optimizer = Adam(drugAE.parameters(), lr=drug_lr)
+#     drug_loss_fn = MSELoss(reduction='mean').to(device)
+#     drug_dataset = DrugDataset(drug_features_data)
+#     drug_feature_loader = DataLoader(drug_dataset, batch_size=drug_bz, shuffle=True)
+#     validation_loader = DataLoader(drug_dataset, batch_size=drug_bz)
+#     drug_es = EarlyStopping(patience=drug_patience)
+#     path = DrugAE_SaveBase + str(drug_outputdim) + ".pth"
+#     with open(DrugAE_Result, 'a') as file:
+#         file.write("---- start drugAE_" + str(drug_outputdim) + " train ----\n")
+#         file.write(str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + "\n")
+#     if os.path.exists(path):
+#         print('---- start to load drugAE_' + str(drug_outputdim) + ' ----')
+#         drugAE.load_state_dict(torch.load(path))
+#         drug_es.best_loss = validate(drugAE, validation_loader, drug_num, drug_loss_fn)
+#         with open(DrugAE_Result, 'a') as file:
+#             file.write("---- Before loss:" + str(drug_es.best_loss) + "\n")
+#     # drug_train_loss = []
+#     print("---- start drugAE_" + str(drug_outputdim) + " train ----")
+#     for epoch in range(drug_epochs):
+#         print(f"Epoch {epoch + 1} of {drug_epochs}")
+#         if drug_es.early_stop:
+#             break
+#         train_epoch_loss = fit(
+#             drugAE, drug_feature_loader, drug_num, drug_optimizer, drug_loss_fn
+#         )
+#         # drug_train_loss.append(train_epoch_loss)
+#         validation_loss = validate(drugAE, validation_loader, drug_num, drug_loss_fn)
+#         drug_es(validation_loss, drugAE, path)
+#         print(f"Train Loss: {train_epoch_loss:.4f}")
+#         print(f"Validation Loss: {validation_loss:.4f}")
+#     print(f"Best Loss:{drug_es.best_loss:.4f}")
+#     with open(DrugAE_Result, 'a') as file:
+#         file.write("Best Loss:" + str(drug_es.best_loss) + "\n")
 
 # cell line AE train
-cell_line_features_data = pd.read_csv('data/cell_line_features.csv')
+cell_line_features_data = pd.read_csv(CELL_LINES_GENES_FILTERED_NORMALIZED, index_col=0)
 cell_line_num = cell_line_features_data.shape[0]
 print("cell lines num:", cell_line_num)
 cell_line_bz = 32

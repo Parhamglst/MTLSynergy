@@ -1,4 +1,4 @@
-from pubchempy import get_compounds
+from pubchempy import get_compounds, get_cids
 import numpy as np
 import pandas as pd
 from Preprocess_Data_Old import remove_ensembl, CELL_LINES_GENES_FILTERED, name_to_depmap
@@ -7,12 +7,15 @@ from transformers import RobertaTokenizer
 import torch
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
+from cmapPy.pandasGEXpress.parse import parse
+from time import sleep
 
 CHEMBL_DATASET = './data/chembl_35_chemreps.txt'
 CHEMBL_MAPPINGS = './data/chembl_uniprot_mapping.txt'
 CCLE_MAPPING = './data/sample_info.csv'
 DRUGCOMB = './data/summary_v_1_5.csv'
 CCLE_DRUGCOMB_FILTERED = './data/CCLE_DrugComb_filtered.csv'
+CELL_LINES_GENES_FILTERED_NORMALIZED = './data/CCLE_genes_filtered_normalized.csv'
 DRUGCOMB_SMILES = './data/DrugComb_SMILES.csv'
 DRUGCOMB_SMILES_FILTERED = './data/DrugComb_SMILES_filtered.csv'
 DRUGCOMB_FILTERED_TOKENIZED = './data/DrugComb_filtered_tokenized.csv'
@@ -21,6 +24,7 @@ DRUGCOMB_EMBEDDINGS = './data/DrugComb_embeddings.pt'
 DRUGCOMB_FILTERED = './data/DrugComb_filtered.csv'
 DOSES = './data/doses_CssSyn2020_1.csv'
 CONC_IC50 = './data/conc_ic50.csv'
+LINCS_RAW = '/home/pareus/nvme0n1p1/GSE92742_Broad_LINCS_Level5_COMPZ.MODZ_n473647x12328.gctx'
 
 def get_smiles(drug_name_or_cas, drug_smiles):
     if drug_name_or_cas in drug_smiles:
@@ -225,8 +229,8 @@ def drugcomb_conc_ic50_filter():
     return
 
 def fit_dose_response():
-    def four_param_logistic(x, A, B, C, D):
-        return D + (A - D) / (1.0 + (x / C)**B)
+    def four_param_logistic(x, bottom, top, logIC50, hill_slope):
+        return bottom + (top - bottom) / (1 + 10**((logIC50 - np.log10(x)) * hill_slope))
     
     df = pd.read_csv(CONC_IC50)
     df['concentration'] = pd.to_numeric(df['concentration'], errors='coerce')
@@ -247,27 +251,28 @@ def fit_dose_response():
             print(f"Not enough data for {drug} | {cell}")
             continue
         try:
-            log_conc = conc[conc > 0]
-            guess_ic50 = 10 ** np.mean(log_conc) if len(log_conc) else np.median(conc)
-            initial_guess = [min(inhib), 1, guess_ic50, max(inhib)]
-            popt, _ = curve_fit(four_param_logistic, conc, inhib, p0=initial_guess)
-            A, B, C, D = popt
+            concentrations = conc[conc > 0]
+            initial_guess = [0, 100, np.log10(1), 1]
+            popt, _ = curve_fit(four_param_logistic, concentrations, inhib, p0=initial_guess)
+            bottom, top, logIC50, hill_slope = popt
             results.append({
                 'drug_name': drug,
                 'cell_line': cell,
-                'min': A,
-                'max': D,
-                'ic50': C,
-                'hill_slope': B
+                'min': bottom,
+                'max': top,
+                'ic50': 10**logIC50,
+                'hill_slope': hill_slope
             })
         except RuntimeError:
             print(f"Fit failed for {drug}-{cell}")
             m += 1
 
         n += 1
-        if n == 5000:
-            print(f"{m} fits failed out of {n} attempts")
-            break
+    
+    print(f"Total fits: {n}, Failed fits: {m}")
+    results = pd.DataFrame(results)
+    df_merged = df.merge(results, on=['drug_name', 'cell_line'], how='left')
+    df_merged.to_csv('./data/dose-response.csv', index=False)
     
     # Random drug-cell line to plot
     random_drug_cell = results[np.random.randint(0, len(results))]
@@ -283,14 +288,14 @@ def fit_dose_response():
     inhib = inhib[mask]
 
     # Extract fit parameters
-    ic50 = random_drug_cell['ic50']
-    A1 = random_drug_cell['min']
-    A2 = random_drug_cell['max']
+    A = random_drug_cell['min']         # bottom
+    B = random_drug_cell['max']         # top
+    logIC50 = np.log10(random_drug_cell['ic50'])
     hill_slope = random_drug_cell['hill_slope']
 
     # Generate fit curve
     x = np.logspace(np.log10(min(conc)), np.log10(max(conc)), 100)
-    y = four_param_logistic(x, A1, hill_slope, ic50, A2)
+    y = four_param_logistic(x, A, B, logIC50, hill_slope)
 
     # Plot
     plt.semilogx(conc, inhib, 'o', label='Data')
@@ -304,6 +309,68 @@ def fit_dose_response():
     plt.show()
     return
 
+def prepareCellLine():
+    cell_line_df = pd.read_csv(CELL_LINES_GENES_FILTERED, index_col=0)
+    cell_line_df = cell_line_df.apply(lambda x: (x - x.mean()) / x.std(), axis=0)
+    cell_line_df.to_csv(CELL_LINES_GENES_FILTERED_NORMALIZED)
+    return
 
+def normalize_ic50():
+    drugcomb_df = pd.read_csv(
+        DRUGCOMB_FILTERED_TOKENIZED,
+        delimiter=",",
+        dtype={
+            "drug_row": str,
+            "drug_col": str,
+            "cell_line_name": str,
+            "synergy_loewe": float,
+            "ri_row": float,
+            "ri_col": float,
+            "ic50_row": float,
+            "synergy_zip": float,
+            "synergy_bliss": float,
+            "synergy_hsa": float,
+        },
+    )
+    mean, std = drugcomb_df['ic50_row'].mean(), drugcomb_df['ic50_row'].std()
+    with open("./data/params.txt", "w") as f:
+        f.write(f"ic50_row mean: {mean}\n")
+        f.write(f"ic50_row std: {std}\n")
+    drugcomb_df['ic50_row'] = (drugcomb_df['ic50_row'] - mean) / std
+    drugcomb_df.to_csv(DRUGCOMB_FILTERED_TOKENIZED, index=False)
+
+def parse_LINCS():
+    gctx = parse(LINCS_RAW)
+    expr = gctx.data_df
+    print(f"Shape of expression data: {expr.shape}")
+    
+    meta = gctx.row_metadata_df
+    print(f"Metadata: {meta}")
+
+def common_LINCS_drugs():
+    drugcomb_df = pd.read_csv(DRUGCOMB_FILTERED_TOKENIZED)
+    pert_info = pd.read_csv('./data/GSE92742_Broad_LINCS_pert_info.txt', sep='\t')
+    cell_info = pd.read_csv('./data/GSE92742_Broad_LINCS_cell_info.txt', sep='\t', dtype=str)
+    
+    druuuuuuuuuuugs = drugcomb_df['drug_row'].unique()
+    for i in range(len(druuuuuuuuuuugs)):
+        flag = True
+        while flag:
+            try:
+                druuuuuuuuuuugs[i] = get_cids(druuuuuuuuuuugs[i])
+                sleep(0.2)
+                flag = False
+            except Exception as e:
+                print(f"Error fetching CID for {druuuuuuuuuuugs[i]}: {e}", flush=True)
+                sleep(1)
+    pert_druuuuuuuuuuuuuugs = pert_info[pert_info['pubchem_id'] == druuuuuuuuuuugs]
+    print("je")
+
+def common_genes():
+    ccle_df = pd.read_csv(CCLE_DRUGCOMB_FILTERED)
+    lincs_df = pd.read_csv('./data/cellinfo_beta.txt', sep='\t')
+    common = set(ccle_df.iloc[:,0]).intersection(set(lincs_df.iloc[:,0]))
+    print(f"Common genes: {len(common)}")
+    
 if __name__ == '__main__':
-    fit_dose_response()
+    common_genes()

@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from Models_old import MTLSynergy, MTLSynergy2, ChemBERTaEncoder, CellLineAE, DrugAE
 from transformers import RobertaTokenizer
-from static.constant import CellAE_OutputDim, MTLSynergy_InputDim, DrugAE_OutputDim
+from static.constant import MTLSynergy_InputDim
 from Preprocess_Data_Old import prepareCellLine, prepareDrug
 from Preprocess_Data import get_smiles
 import argparse
@@ -25,9 +25,10 @@ def run_simulation(drug1, cell_line, cell_line_AE_path, drug_AE_path, model_path
             output = model(drug1_encoded.unsqueeze(0), drug2_encoded.unsqueeze(0), cell_line_encoded.unsqueeze(0))
 
         return output
-
-    drugAE = DrugAE().to(device)
-    cellLineAE = CellLineAE().to(device)
+    DrugAE_OutputDim = int(drug_AE_path[-7:-4])
+    CellAE_OutputDim = int(cell_line_AE_path[-7:-4])
+    drugAE = DrugAE(output_dim=DrugAE_OutputDim).to(device)
+    cellLineAE = CellLineAE(output_dim=CellAE_OutputDim).to(device)
     mtlSynergy = MTLSynergy([8192, 4096, 4096, 2048], DrugAE_OutputDim + CellAE_OutputDim).to(device)
 
     drugAE.load_state_dict(torch.load(drug_AE_path))
@@ -84,7 +85,7 @@ def run_simulation2(drug1, cell_line, cell_line_AE_path, model_path='./save/MTLS
             output = model(d1_encoded.to(device), d2_encoded.to(device), cell_line_encoded.unsqueeze(0).to(device))
 
         return output
-
+    
     chemBERTaEncoder = ChemBERTaEncoder().to(device)
     tokenizer = RobertaTokenizer.from_pretrained("DeepChem/ChemBERTa-77M-MLM")
     cellLineAE = CellLineAE().to(device)
