@@ -35,15 +35,21 @@ python3 run_simulation.py
 
 - **`--drug1`, `-d1`**  
   First drug. If there are spaces in the drug name, replace them with underscores.
+  
+- **`--smiles1`, `-s1`**  
+  SMILES string of the first drug.
 
 - **`--drug2`, `-d2`** *(Optional)*  
   Second drug. If there are spaces in the drug name, replace them with underscores.
+
+- **`--smiles2`, `-s2`** *(Optional)*  
+  SMILES string of the second drug.
 
 - **`--cell_line`, `-c`**  
   Cell line that the drug combination is being tested on.
 
 - **`--model_version`, `-v`**
-  `'1'` is the paper's original model, `'2'` is with ChemBERTa and expanded dataset.
+  `'1'` is the paper's original model, `'2'` is with ChemBERTa and expanded dataset, and `'3'` is with ChemBERTa, expanded dataset, and more outputs (Bliss, HSA, ZIP, and IC50).
 
 ## Credits
 

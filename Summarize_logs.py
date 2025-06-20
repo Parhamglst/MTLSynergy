@@ -4,6 +4,7 @@ import numpy as np
 
 LABELS = ['Loewe', 'RI', 'SynC', 'SenC', 'Bliss', 'ZIP', 'HSA', 'IC50']
 COLORS = ['blue', 'green', 'red', 'yellow', 'black', 'purple', 'brown', 'orange']
+IC50_MEAN_STD = [18.328315699034636, 137.18380291202186]
 
 def parse_individual_val_losses(file_content):
     data = {}
@@ -43,9 +44,12 @@ def generate_plots(data):
     for fold_name, losses in data.items():
         plt.figure(figsize=(18, 12))
         for label, epoch_losses in losses.items():
-            if label != 'IC50':
-                plt.plot(epoch_losses[:-1], marker='o', label=label, color=COLORS[LABELS.index(label)])
-                plt.axhline(y=epoch_losses[-1], color=COLORS[LABELS.index(label)], linestyle=':', label=f'Test Loss: {epoch_losses[-1]:.2f}')
+            if label == 'IC50':
+                mean_ic50 = IC50_MEAN_STD[0]
+                std_ic50 = IC50_MEAN_STD[1]
+                epoch_losses = [loss * std_ic50 + mean_ic50 for loss in epoch_losses]
+            plt.plot(epoch_losses[:-1], marker='o', label=label, color=COLORS[LABELS.index(label)])
+            plt.axhline(y=epoch_losses[-1], color=COLORS[LABELS.index(label)], linestyle=':', label=f'Test Loss: {epoch_losses[-1]:.2f}')
         plt.title(f"Validation Losses for fold {fold_name}")
         plt.xlabel("Epoch")
         plt.ylabel("Validation Loss")
