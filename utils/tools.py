@@ -4,6 +4,7 @@ import random
 import numpy as np
 import os
 import pandas as pd
+import torch.distributed as dist
 
 
 class EarlyStopping():
@@ -14,22 +15,31 @@ class EarlyStopping():
         self.best_loss = None
         self.early_stop = False
 
-    def __call__(self, val_loss, model, save_path):
-        if self.best_loss == None:
-            self.best_loss = val_loss
-            torch.save(model.module.state_dict() if hasattr(model, "module") else model.state_dict(), save_path)
-        elif self.best_loss - val_loss > self.min_delta:
-            self.best_loss = val_loss
-            # reset counter if validation loss improves
-            self.counter = 0
-            # save weights
-            torch.save(model.module.state_dict() if hasattr(model, "module") else model.state_dict(), save_path)
-        elif self.best_loss - val_loss < self.min_delta:
-            self.counter += 1
-            print(f"INFO: Early stopping counter {self.counter} of {self.patience}")
-            if self.counter >= self.patience:
-                print('INFO: Early stopping')
-                self.early_stop = True
+    def __call__(self, val_loss, model, chemberta_model, cellLineEncoder, save_path, rank):
+        if rank == 0:
+            if self.best_loss == None:
+                self.best_loss = val_loss
+                torch.save(model.module.state_dict() if hasattr(model, "module") else model.state_dict(), save_path)
+                torch.save(chemberta_model.module.state_dict() if hasattr(chemberta_model, "module") else chemberta_model.state_dict(), save_path.replace('.pt', '_chemberta.pt'))
+                torch.save(cellLineEncoder.module.state_dict() if hasattr(cellLineEncoder, "module") else cellLineEncoder.state_dict(), save_path.replace('.pt', '_cellLineAE.pt'))
+                print(f"INFO: Early stopping initialized with best loss {self.best_loss}")
+            elif self.best_loss - val_loss > self.min_delta:
+                self.best_loss = val_loss
+                # reset counter if validation loss improves
+                self.counter = 0
+                # save weights
+                torch.save(model.module.state_dict() if hasattr(model, "module") else model.state_dict(), save_path)
+                torch.save(chemberta_model.module.state_dict() if hasattr(chemberta_model, "module") else chemberta_model.state_dict(), save_path.replace('.pt', '_chemberta.pt'))
+                torch.save(cellLineEncoder.module.state_dict() if hasattr(cellLineEncoder, "module") else cellLineEncoder.state_dict(), save_path.replace('.pt', '_cellLineAE.pt'))
+                print(f"INFO: Early stopping best loss updated to {self.best_loss}")
+            elif self.best_loss - val_loss < self.min_delta:
+                self.counter += 1
+                print(f"INFO: Early stopping counter {self.counter} of {self.patience}")
+                if self.counter >= self.patience:
+                    print('INFO: Early stopping')
+                    self.early_stop = True
+        if dist.is_initialized():
+            dist.barrier()
 
 
 def set_seed(seed=1):
@@ -127,21 +137,23 @@ class CategoricalCrossEntropyLoss(torch.nn.Module):
     
 
 class GradNormController:
-    def __init__(self, task_weights, alpha=1.5):
-        self.task_weights = task_weights
+    def __init__(self, alpha=1.5):
         self.alpha = alpha
         self.initial_losses = None
+        self.epsilon = 1e-8
 
-    def compute_gradnorm_loss(self, shared_params, task_losses):
+    def compute_gradnorm_loss(self, shared_params, task_losses, task_weights):
         # Get gradient norms for each task
         norms = []
-        target_device = task_losses[0].device if task_losses else self.task_weights[0].device # Fallback if task_losses is empty
+        target_device = task_losses[0].device if task_losses else task_weights[0].device # Fallback if task_losses is empty
+        task_weights_on_device = [w.to(target_device) for w in task_weights]
         for i, loss in enumerate(task_losses):
             grad = torch.autograd.grad(
-                self.task_weights[i] * loss, shared_params,
-                retain_graph=True, create_graph=True
+                task_weights_on_device[i] * loss, shared_params,
+                retain_graph=True, create_graph=True, allow_unused=True
             )
-            norm = torch.linalg.norm(torch.cat([g.flatten().to(target_device) for g in grad]))
+            flat_grad = torch.cat([g.flatten() for g in grad if g is not None])
+            norm = torch.linalg.norm(flat_grad)
             norms.append(norm)
 
         norms = torch.stack(norms)
@@ -149,14 +161,14 @@ class GradNormController:
 
         if self.initial_losses is None:
             self.initial_losses = torch.stack([l.detach() for l in task_losses])
-            self.initial_losses = torch.clamp(self.initial_losses, min=1e-6)
 
-        with torch.no_grad():
-            loss_ratios = torch.tensor([l.item() / init for l, init in zip(task_losses, self.initial_losses)], device=target_device)
-            mean_loss_ratio = loss_ratios.mean()
-            inverse_train_rates = loss_ratios / mean_loss_ratio
+        current_losses = torch.stack([l.detach() for l in task_losses])
+        loss_ratios = current_losses / (self.initial_losses + self.epsilon)
+        loss_ratios = torch.clamp(loss_ratios, min=0.0, max=100.0)
+        mean_loss_ratio = loss_ratios.mean() + self.epsilon
+        inverse_train_rates = loss_ratios / mean_loss_ratio
 
-            target_norms = norms_mean * (inverse_train_rates ** self.alpha)
+        target_norms = norms_mean * (inverse_train_rates ** self.alpha)
         
         grad_norm_loss = F.l1_loss(norms, target_norms.detach())
 

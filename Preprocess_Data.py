@@ -9,6 +9,7 @@ from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from cmapPy.pandasGEXpress.parse import parse
 from time import sleep
+from chembl_webresource_client.new_client import new_client
 
 CHEMBL_DATASET = './data/chembl_35_chemreps.txt'
 CHEMBL_MAPPINGS = './data/chembl_uniprot_mapping.txt'
@@ -19,8 +20,10 @@ CELL_LINES_GENES_FILTERED_NORMALIZED = './data/CCLE_genes_filtered_normalized.cs
 DRUGCOMB_SMILES = './data/DrugComb_SMILES.csv'
 DRUGCOMB_SMILES_FILTERED = './data/DrugComb_SMILES_filtered.csv'
 DRUGCOMB_FILTERED_TOKENIZED = './data/DrugComb_filtered_tokenized.csv'
+DRUGCOMB_FILTERED_TOKENIZED_CHEMBL = './data/DrugComb_filtered_tokenized_chembl.csv'
 DRUGCOMB_CELLLINE_FILTERED = './data/DrugComb_CellLine_filtered.csv'
 DRUGCOMB_EMBEDDINGS = './data/DrugComb_embeddings.pt'
+DRUGCOMB_EMBEDDINGS_CHEMBL = './data/DrugComb_embeddings_chembl.pt'
 DRUGCOMB_FILTERED = './data/DrugComb_filtered.csv'
 DOSES = './data/doses_CssSyn2020_1.csv'
 CONC_IC50 = './data/conc_ic50.csv'
@@ -40,6 +43,19 @@ def get_smiles(drug_name_or_cas, drug_smiles):
             return None
     drug_smiles[drug_name_or_cas] = compounds[0].isomeric_smiles if compounds else None
     return drug_smiles[drug_name_or_cas]
+
+def get_smiles_chembl(drug_name_or_cas, drug_smiles):
+    if drug_name_or_cas in drug_smiles:
+        return drug_smiles[drug_name_or_cas]
+    molecule = new_client.molecule
+    try:
+        result = molecule.search(drug_name_or_cas)
+        if result:
+            drug_smiles[drug_name_or_cas] = result[0]["molecule_structures"]['canonical_smiles']
+            return drug_smiles[drug_name_or_cas]
+    except Exception as e:
+        print(f"Error fetching SMILES for NAME {drug_name_or_cas}: {e}")
+
 
 def construct_cell_line_features():
     cell_line_df = pd.read_csv(CELL_LINES_GENES_FILTERED)
@@ -162,8 +178,8 @@ def _drugcomb_tokenized():
     drug_smiles = {}
 
     # Apply get_smiles function to fetch all SMILES strings at once
-    drugcomb_df['drug_row_smiles'] = drugcomb_df['drug_row'].map(lambda d: get_smiles(d, drug_smiles) if pd.notnull(d) else None)
-    drugcomb_df['drug_col_smiles'] = drugcomb_df['drug_col'].map(lambda d: get_smiles(d, drug_smiles) if pd.notnull(d) else None)
+    drugcomb_df['drug_row_smiles'] = drugcomb_df['drug_row'].map(lambda d: get_smiles_chembl(d, drug_smiles) if pd.notnull(d) else None)
+    drugcomb_df['drug_col_smiles'] = drugcomb_df['drug_col'].map(lambda d: get_smiles_chembl(d, drug_smiles) if pd.notnull(d) else None)
 
     # Identify rows with missing SMILES and drop them
     to_drop = drugcomb_df[drugcomb_df['drug_row_smiles'].isna() | (drugcomb_df['drug_col_smiles'].isna() & drugcomb_df['drug_row_smiles'].isna())].index
@@ -176,11 +192,45 @@ def _drugcomb_tokenized():
     tokenized_output = tokenizer(unique_drugs, return_tensors="pt", padding="max_length", truncation=True)
 
     # Extract tokenized input_ids (since tokenizer output is a dictionary)
-    embeddings = {drug: tokenized_output['input_ids'][i] for i, drug in enumerate(unique_drugs)}
+    embeddings = {
+        drug: {
+            'input_ids': tokenized_output['input_ids'][i],
+            'attention_mask': tokenized_output['attention_mask'][i]
+        }
+        for i, drug in enumerate(unique_drugs)
+    }
+    assert None not in embeddings.keys(), "Some drugs were not tokenized correctly."
 
     # Save embeddings
-    torch.save(embeddings, DRUGCOMB_EMBEDDINGS)
+    torch.save(embeddings, DRUGCOMB_EMBEDDINGS_CHEMBL)
+    
 
+def drugcomb_chembl_filter():
+    drugcomb_df = pd.read_csv(
+        DRUGCOMB_FILTERED_TOKENIZED,
+        delimiter=",",
+        dtype={
+            "drug_row": str,
+            "drug_col": str,
+            "cell_line_name": str,
+            "synergy_loewe": float,
+            "ri_row": float,
+            "ri_col": float,
+            "ic50_row": float,
+            "synergy_zip": float,
+            "synergy_bliss": float,
+            "synergy_hsa": float,
+        },
+    )
+    all_drugs = set(drugcomb_df['drug_row'].unique()).union(set(drugcomb_df['drug_col'].unique()))
+    chembl_drugs = torch.load(DRUGCOMB_EMBEDDINGS_CHEMBL)
+    diff = all_drugs.difference(set(chembl_drugs.keys()))
+    diff.discard('nan')
+    drugcomb_df = drugcomb_df[~drugcomb_df['drug_row'].isin(diff)]
+    drugcomb_df = drugcomb_df[~drugcomb_df['drug_col'].isin(diff)]
+    drugcomb_df.to_csv(DRUGCOMB_FILTERED_TOKENIZED_CHEMBL, index=False)
+
+    
 def drugcomb_conc_ic50_filter():
     df_conc = pd.read_csv(DOSES, delimiter='|')
     df_ic50 = pd.read_csv(DRUGCOMB_FILTERED_TOKENIZED)
@@ -315,7 +365,7 @@ def prepareCellLine():
     cell_line_df.to_csv(CELL_LINES_GENES_FILTERED_NORMALIZED)
     return
 
-def normalize_ic50():
+def normalize_data():
     drugcomb_df = pd.read_csv(
         DRUGCOMB_FILTERED_TOKENIZED,
         delimiter=",",
@@ -332,11 +382,12 @@ def normalize_ic50():
             "synergy_hsa": float,
         },
     )
-    mean, std = drugcomb_df['ic50_row'].mean(), drugcomb_df['ic50_row'].std()
-    with open("./data/params.txt", "w") as f:
-        f.write(f"ic50_row mean: {mean}\n")
-        f.write(f"ic50_row std: {std}\n")
-    drugcomb_df['ic50_row'] = (drugcomb_df['ic50_row'] - mean) / std
+    with open("./data/paramss.txt", "a") as f:
+        for col in ["synergy_loewe", "ri_row", "ri_col", "synergy_zip", "synergy_bliss", "synergy_hsa"]:
+            mean, std = drugcomb_df[col].mean(), drugcomb_df[col].std()
+            f.write(f"{col} mean: {mean}\n")
+            f.write(f"{col} std: {std}\n")
+            drugcomb_df[col] = (drugcomb_df[col] - mean) / std
     drugcomb_df.to_csv(DRUGCOMB_FILTERED_TOKENIZED, index=False)
 
 def parse_LINCS():
@@ -373,4 +424,4 @@ def common_genes():
     print(f"Common genes: {len(common)}")
     
 if __name__ == '__main__':
-    common_genes()
+    normalize_data()

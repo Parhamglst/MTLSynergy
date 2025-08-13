@@ -9,3 +9,5 @@ slurm*
 *.zip
 *.xlsx
 plots/*
+logs/*
+test*
