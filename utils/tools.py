@@ -19,18 +19,18 @@ class EarlyStopping():
         if rank == 0:
             if self.best_loss == None:
                 self.best_loss = val_loss
-                torch.save(model.module.state_dict() if hasattr(model, "module") else model.state_dict(), save_path)
-                torch.save(chemberta_model.module.state_dict() if hasattr(chemberta_model, "module") else chemberta_model.state_dict(), save_path.replace('.pt', '_chemberta.pt'))
-                torch.save(cellLineEncoder.module.state_dict() if hasattr(cellLineEncoder, "module") else cellLineEncoder.state_dict(), save_path.replace('.pt', '_cellLineAE.pt'))
+                torch.save(model.state_dict(), save_path)
+                torch.save(chemberta_model.state_dict(), save_path.replace('.pt', '_chemberta.pt'))
+                torch.save(cellLineEncoder.state_dict(), save_path.replace('.pt', '_cellLineAE.pt'))
                 print(f"INFO: Early stopping initialized with best loss {self.best_loss}")
             elif self.best_loss - val_loss > self.min_delta:
                 self.best_loss = val_loss
                 # reset counter if validation loss improves
                 self.counter = 0
                 # save weights
-                torch.save(model.module.state_dict() if hasattr(model, "module") else model.state_dict(), save_path)
-                torch.save(chemberta_model.module.state_dict() if hasattr(chemberta_model, "module") else chemberta_model.state_dict(), save_path.replace('.pt', '_chemberta.pt'))
-                torch.save(cellLineEncoder.module.state_dict() if hasattr(cellLineEncoder, "module") else cellLineEncoder.state_dict(), save_path.replace('.pt', '_cellLineAE.pt'))
+                torch.save(model.state_dict(), save_path)
+                torch.save(chemberta_model.state_dict(), save_path.replace('.pt', '_chemberta.pt'))
+                torch.save(cellLineEncoder.state_dict(), save_path.replace('.pt', '_cellLineAE.pt'))
                 print(f"INFO: Early stopping best loss updated to {self.best_loss}")
             elif self.best_loss - val_loss < self.min_delta:
                 self.counter += 1
@@ -142,6 +142,7 @@ class GradNormController:
         self.initial_losses = None
         self.epsilon = 1e-8
 
+    @torch._dynamo.disable
     def compute_gradnorm_loss(self, shared_params, task_losses, task_weights):
         # Get gradient norms for each task
         norms = []

@@ -7,6 +7,8 @@ from scipy.spatial.distance import cdist
 from scipy.optimize import linear_sum_assignment
 from pubchempy import get_compounds
 
+
+CCLE_EXPRESSION_FULL = './data/CCLE_expression_full.csv'
 PAPERS_CELL_LINE_ORIGINAL = './data/12859_2023_5524_MOESM2_ESM.xlsx'
 PAPERS_DRUG_ORIGINAL = './data/12859_2023_5524_MOESM1_ESM.xlsx'
 PAPERS_CELL_LINE_FEATURES = './data/cell_line_features.csv'
@@ -221,23 +223,23 @@ def find_common_descriptor_columns(molecules):
     aligned_df.to_csv('./out/aligned_drugs.csv', index=False)
     return aligned_df
 
-def reconstructCellLineDataset(input_file):
+def reconstructCellLineDataset():
     commonColumns = list(pd.read_csv('./out/common_genes.csv')['Common Genes'])
-    cellLineData = pd.read_csv(input_file)
+    cellLineData = pd.read_csv(CCLE_EXPRESSION_FULL)
     cmn = [cellLineData.columns[0]]
     for col in commonColumns:
         for c in cellLineData.columns:
-            if c.startswith(col):
+            if remove_ensembl(c).strip() == col:
                 cmn.append(c)
                 break
     cellLineData = cellLineData[cmn]
     cellLineData.to_csv(CELL_LINES_GENES_FILTERED, index=False)
     return
 
-def find_common_cell_line_columns(input_file):
+def find_common_genes():
     papersGenes = next(pd.read_csv(PAPERS_CELL_LINE_FEATURES, chunksize=1)).columns
-    newGenes = list(next(pd.read_csv(input_file, chunksize=1)).columns[1:])
-    
+    newGenes = list(next(pd.read_csv(CCLE_EXPRESSION_FULL, chunksize=1)).columns[1:])
+
     for i in range(len(newGenes)):
         newGenes[i] = remove_ensembl(newGenes[i]).strip()
     
@@ -245,6 +247,8 @@ def find_common_cell_line_columns(input_file):
     for gene in papersGenes:
         if gene in newGenes:
             commonGenes.append(gene)
+        else:
+            print(f'Gene {gene} not found in CCLE expression data')
 
     commonGenesDf = pd.DataFrame(commonGenes, columns=['Common Genes'])    
     commonGenesDf.to_csv('./out/common_genes.csv', index=False)
@@ -272,3 +276,5 @@ def remove_ensembl(name, regex=r"(.*)\("):
 # ccleFiltered = pd.read_csv(CELL_LINES_FILTERED, usecols=range(0, 5001)).set_index('Unnamed: 0')
 # drugsMeanStd = pd.read_csv(CELL_LINES_MEAN_STD)
 # normalizeCellLineData(ccleFiltered, drugsMeanStd)
+
+reconstructCellLineDataset()

@@ -11,3 +11,4 @@ slurm*
 plots/*
 logs/*
 test*
+*.png

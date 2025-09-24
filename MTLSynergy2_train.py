@@ -64,7 +64,6 @@ def mean_pooling(last_hidden_state, attention_mask):
     # Mean pooling
     return sum_embeddings / sum_mask
 
-
 # ema_mean_yhat = torch.zeros(1, device=device)
 # ema_mean_y = torch.zeros(1, device=device)
 # ema_var_yhat = torch.ones(1, device=device)
@@ -96,8 +95,7 @@ def train(
     optimizer,
     mse,
     cce,
-    gradNormController: GradNormController,
-    task_weights,
+    log_vars,
     device
 ):
     model.train()
@@ -182,17 +180,17 @@ def train(
             pred_ic50,
         ) = model(d_row_embeddings, d_col_embeddings, c_embeddings)
 
-        print(
-            f"Per-task losses: "
-            f"{mse(pred_syn, synergy_loewe).item():.5f}, "
-            f"{mse(pred_ri, ri_row).item():.5f}, "
-            f"{cce(pred_syn_class, syn_label).item():.5f}, "
-            f"{cce(pred_sen_class, d1_label).item():.5f}, "
-            f"{mse(pred_bliss, bliss).item():.5f}, "
-            f"{mse(pred_zip, zip_score).item():.5f}, "
-            f"{mse(pred_hsa, hsa).item():.5f}, "
-            f"{mse(pred_ic50, ic50).item():.5f}"
-        )
+        # print(
+        #     f"Per-task losses: "
+        #     f"{mse(pred_syn, synergy_loewe).item():.5f}, "
+        #     f"{mse(pred_ri, ri_row).item():.5f}, "
+        #     f"{cce(pred_syn_class, syn_label).item():.5f}, "
+        #     f"{cce(pred_sen_class, d1_label).item():.5f}, "
+        #     f"{mse(pred_bliss, bliss).item():.5f}, "
+        #     f"{mse(pred_zip, zip_score).item():.5f}, "
+        #     f"{mse(pred_hsa, hsa).item():.5f}, "
+        #     f"{mse(pred_ic50, ic50).item():.5f}"
+        # )
 
         losses = [
             mse(pred_syn, synergy_loewe), # + 0.05 * corr_loss(pred_syn, synergy_loewe),
@@ -204,28 +202,26 @@ def train(
             mse(pred_hsa, hsa), # + 0.05 * corr_loss(pred_hsa, hsa),
             mse(pred_ic50, ic50), # + 0.05 * corr_loss(pred_ic50, ic50),
         ]
-
-        weights_soft = torch.softmax(task_weights, dim=0)
-        scaled_losses = [weights_soft[i] * losses[i] for i in range(len(losses))]
-        loss = sum(scaled_losses)
         
-        shared_params = list(model.module.drug_cell_line_layer.parameters())
-        if isinstance(chemBERTa_model, torch.nn.parallel.DistributedDataParallel):
-            shared_params += list(chemBERTa_model.module.parameters())
-        else:
-            shared_params += list(chemBERTa_model.parameters())
-        shared_params += list(cellLineEncoder.parameters())
+        # total_loss = 0.0
+        #for i, loss in enumerate(losses):
+        #    precision = torch.exp(-log_vars[i])
+        #    task_loss = precision * loss + 0.5 * log_vars[i]
+        #    total_loss += task_loss
+        losses_tensor = torch.stack(losses)
+        precision = torch.exp(-log_vars)
+        weighted_losses = precision * losses_tensor + 0.5 * log_vars
+        total_loss = torch.sum(weighted_losses)
 
-        gradnorm_loss = gradNormController.compute_gradnorm_loss(shared_params, losses, task_weights)
-        total_loss = loss + 0.1 * gradnorm_loss
         total_loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         total_loss_epoch += [l.item() for l in losses]
         #prof.step()
     if device == torch.device("cuda:0"):
-        print(f"Per Task Weights: {', '.join([f'{w:.5f}' for w in weights_soft.detach().cpu().numpy()])}", flush=True)
+        weights = torch.exp(-log_vars.detach())
+        print(f"Per Task Precisions: {', '.join([f'{w:.5f}' for w in weights.cpu().numpy()])}")
+
     #prof.stop()
 
     return total_loss_epoch / len(train_loader)
@@ -239,7 +235,7 @@ def evaluate(
     val_loader,
     mse,
     cce,
-    task_weights,
+    log_vars,
     device
 ):
     model.eval()
@@ -280,12 +276,15 @@ def evaluate(
 
             input_ids_row_list, attn_mask_row_list = [], []
             input_ids_col_list, attn_mask_col_list = [], []
+            token_type_ids_row_list = []
+            token_type_ids_col_list = []
 
             for drug_row, drug_col in zip(d_row, d_col):
                 # Process drug_row
                 row_embedding = drug_embeddings[drug_row]
                 input_ids_row_list.append(row_embedding["input_ids"].squeeze(0))
                 attn_mask_row_list.append(row_embedding["attention_mask"].squeeze(0))
+                token_type_ids_row_list.append(torch.zeros_like(row_embedding["input_ids"].squeeze(0)))
 
                 # Process drug_col, with fallback to drug_row if NaN
                 col_embedding = (
@@ -293,18 +292,22 @@ def evaluate(
                 )
                 input_ids_col_list.append(col_embedding["input_ids"].squeeze(0))
                 attn_mask_col_list.append(col_embedding["attention_mask"].squeeze(0))
+                token_type_ids_col_list.append(torch.zeros_like(col_embedding["input_ids"].squeeze(0)))
 
             input_ids_row = torch.stack(input_ids_row_list).to(device)
             attn_mask_row = torch.stack(attn_mask_row_list).to(device)
             input_ids_col = torch.stack(input_ids_col_list).to(device)
             attn_mask_col = torch.stack(attn_mask_col_list).to(device)
+            token_type_ids_row = torch.stack(token_type_ids_row_list).to(device)
+            token_type_ids_col = torch.stack(token_type_ids_col_list).to(device)
+
 
             # Feed into ChemBERTa
             d_row_embeddings = chemBERTa_model(
-                input_ids=input_ids_row, attention_mask=attn_mask_row
+                input_ids=input_ids_row, attention_mask=attn_mask_row, token_type_ids=token_type_ids_row
             ).last_hidden_state[:, 0, :]
             d_col_embeddings = chemBERTa_model(
-                input_ids=input_ids_col, attention_mask=attn_mask_col
+                input_ids=input_ids_col, attention_mask=attn_mask_col, token_type_ids=token_type_ids_col
             ).last_hidden_state[:, 0, :]
             c_embeddings = cellLineEncoder(c_exp)
 
@@ -332,10 +335,11 @@ def evaluate(
                 mse(pred_ic50, ic50),
             ]
 
-            weights_soft = torch.softmax(task_weights, dim=0)
             scaled_losses = [
-                weights_soft[i] * losses[i] for i in range(len(losses))
+                torch.exp(-log_vars[i]) * losses[i] + 0.5 * log_vars[i]
+                for i in range(len(losses))
             ]
+
             loss = sum(scaled_losses)
             total_loss_epoch += [l.item() for l in losses]
             total_loss += loss.item()
@@ -365,6 +369,11 @@ def main():
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(local_rank)
     device = torch.device(f"cuda:{local_rank}")
+    
+    def ddp_reduce_mean(x: float) -> float:
+        t = torch.tensor([x], dtype=torch.float32, device=device)
+        dist.all_reduce(t, op=dist.ReduceOp.SUM)
+        return (t / world_size).item()
 
     parser = argparse.ArgumentParser(
     description="Train MTLSynergy2 model with nested cross-validation."
@@ -457,20 +466,17 @@ def main():
                 for param in chemberta_model.parameters():
                     param.requires_grad = True
                 model = MTLSynergy2(hidden_neurons, input_dim=MTLSynergy_InputDim).to(device)
+                # model = torch.compile(model)
+                # chemberta_model = torch.compile(chemberta_model)
+                # cellLineAE = torch.compile(cellLineAE)
                 
                 # Wrap models in DDP
                 model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=True)
                 chemberta_model = torch.nn.parallel.DistributedDataParallel(chemberta_model, device_ids=[local_rank], find_unused_parameters=True)
                 cellLineAE = torch.nn.parallel.DistributedDataParallel(cellLineAE, device_ids=[local_rank], find_unused_parameters=True)
-                model = torch.compile(model)
-                chemberta_model = torch.compile(chemberta_model)
-                cellLineAE = torch.compile(cellLineAE)
-                gradNormController = GradNormController()
-                
+
                 model_es = EarlyStopping(patience=patience)
-                task_weights = torch.nn.Parameter(torch.ones(NUM_TASKS, requires_grad=True, device=device))
-                with torch.no_grad():
-                    task_weights.div_(task_weights.sum())
+                log_vars = torch.nn.Parameter(torch.zeros(NUM_TASKS, device=device))
                 optimizer = AdamW(
                     [
                         {
@@ -509,13 +515,13 @@ def main():
                             "lr": hyper_parameters["learning_rate"] * 0.1,
                         },
                         {
+                            "params": log_vars,
+                            "lr": hyper_parameters["learning_rate"],
+                        },
+                        {
                             "params": chemberta_model.parameters(),
                             "lr": hyper_parameters["learning_rate"] * 0.1,
                         },
-                        {
-                            "params": task_weights,
-                            "lr": hyper_parameters["learning_rate"] * 0.1,
-                        }
                     ]
                 )
 
@@ -535,8 +541,7 @@ def main():
                         optimizer,
                         mse,
                         cce,
-                        gradNormController,
-                        task_weights,
+                        log_vars,
                         device
                     )
                     val_loss_list, val_loss = evaluate(
@@ -547,7 +552,7 @@ def main():
                         val_loader,
                         mse,
                         cce,
-                        task_weights,
+                        log_vars,
                         device
                     )
                     if is_main:
@@ -558,12 +563,21 @@ def main():
                     model_es(val_loss, model, chemberta_model, cellLineAE, inner_save_path, local_rank)
                     if model_es.early_stop or epoch == epochs - 1:
                         best_val_loss = model_es.best_loss
-                        inner_results.append(best_val_loss)
-            result_per_inner_fold_mean = np.array(inner_results).mean()
-            result_per_hp.append(result_per_inner_fold_mean)
-            hp_i += 1
+                        if is_main:
+                            inner_results.append(best_val_loss)
+            dist.barrier()
+            if is_main:
+                result_per_inner_fold_mean = np.array(inner_results).mean()
+                result_per_hp.append(result_per_inner_fold_mean)
+                hp_i += 1
             torch.cuda.empty_cache()
-        best_hp_i = np.array(result_per_hp).argmin()
+        if is_main:
+            best_hp_i = np.array(result_per_hp).argmin()
+            best_hp_i_tensor = torch.tensor([best_hp_i], dtype=torch.long, device=device)
+        else:
+            best_hp_i_tensor = torch.empty(1, dtype=torch.long, device=device)
+        dist.broadcast(best_hp_i_tensor, src=0)
+        best_hp_i = best_hp_i_tensor.item()
         best_hp = hyper_parameters_candidate[best_hp_i]
         if is_main:
             print("--------- Best parameters: " + str(best_hp) + " ---------")
@@ -599,13 +613,13 @@ def main():
         model = MTLSynergy2(best_hp["hidden_neurons"], input_dim=MTLSynergy_InputDim).to(device)
         model_es = EarlyStopping(patience=patience)
         
+        # model = torch.compile(model)
+        # chemberta_model = torch.compile(chemberta_model)
+        # cellLineAE = torch.compile(cellLineAE)
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=True)
         chemberta_model = torch.nn.parallel.DistributedDataParallel(chemberta_model, device_ids=[local_rank], find_unused_parameters=True)
         cellLineAE = torch.nn.parallel.DistributedDataParallel(cellLineAE, device_ids=[local_rank], find_unused_parameters=True)
-        gradNormController = GradNormController()
-        task_weights = torch.nn.Parameter(torch.ones(NUM_TASKS, requires_grad=True, device=device))
-        with torch.no_grad():
-            task_weights.div_(task_weights.sum())
+        log_vars = torch.nn.Parameter(torch.zeros(NUM_TASKS, device=device))
 
         optimizer = AdamW(
             [
@@ -617,7 +631,7 @@ def main():
                         or "synergy_layer" in n
                         or "sensitivity_layer" in n
                     ],
-                    "lr": hyper_parameters["learning_rate"],
+                    "lr": best_hp["learning_rate"],
                 },
                 {
                     "params": [
@@ -630,7 +644,7 @@ def main():
                         or "zip_out" in n
                         or "hsa_out" in n
                     ],
-                    "lr": hyper_parameters["learning_rate"] * 0.3,
+                    "lr": best_hp["learning_rate"] * 0.3,
                 },
                 {
                     "params": [
@@ -638,19 +652,19 @@ def main():
                         for n, p in model.named_parameters()
                         if "synergy_out_2" in n or "sensitivity_out_2" in n
                     ],
-                    "lr": hyper_parameters["learning_rate"] * 0.1,
+                    "lr": best_hp["learning_rate"] * 0.1,
                 },
                 {
                     "params": cellLineAE.parameters(),
-                    "lr": hyper_parameters["learning_rate"] * 0.1,
+                    "lr": best_hp["learning_rate"] * 0.1,
                 },
                 {
                     "params": chemberta_model.parameters(),
-                    "lr": hyper_parameters["learning_rate"] * 0.1,
+                    "lr": best_hp["learning_rate"] * 0.1,
                 },
                 {
-                    "params": task_weights,
-                    "lr": hyper_parameters["learning_rate"] * 0.1,
+                    "params": log_vars,
+                    "lr": best_hp["learning_rate"] * 0.1,
                 }
             ]
         )
@@ -668,8 +682,7 @@ def main():
                 optimizer,
                 mse,
                 cce,
-                gradNormController,
-                task_weights,
+                log_vars,
                 device
             )
 
@@ -681,20 +694,24 @@ def main():
                 final_val_loader,
                 mse,
                 cce,
-                task_weights,
+                log_vars,
                 device
             )
+            val_loss_mean = ddp_reduce_mean(val_loss)
             if is_main:
                 print(
                     f"\tEpoch {epoch+1}:\n\t\tTrain Loss: {train_loss}\n\t\tVal Loss: {val_loss_list}, Weighted Val Loss = {val_loss}",
                     flush=True,
                 )
             model_es(val_loss, model, chemberta_model, cellLineAE, outer_save_path, local_rank)
+            dist.barrier()
             if model_es.early_stop:
-                print("Early stopping triggered.")
+                if is_main:
+                    print("Early stopping triggered.")
                 break
         # Load the best model
-        state_dict = torch.load(outer_save_path)
+        dist.barrier()
+        state_dict = torch.load(outer_save_path, map_location=device)
         model = MTLSynergy2(best_hp["hidden_neurons"], input_dim=MTLSynergy_InputDim).to(device)
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank])
         model.load_state_dict(state_dict)
@@ -707,21 +724,22 @@ def main():
             final_test_loader,
             mse,
             cce,
-            task_weights,
+            log_vars,
             device
         )
-        outer_results.append(test_loss)
+        test_loss_mean = ddp_reduce_mean(test_loss)
 
         if is_main:
             print(
-                f"\tEpoch {epoch+1}:\n\t\tTest Loss: {test_loss_list}, Weighted Test Loss = {test_loss}",
+                f"\tEpoch {epoch+1}:\n\t\tTest Loss: {test_loss_list}, Weighted Test Loss = {test_loss_mean}",
                 flush=True,
             )
+            outer_results.append(test_loss_mean)
         torch.cuda.empty_cache()
 
     # Compute final test performance
-    final_score = np.mean(outer_results)
     if is_main:
+        final_score = np.mean(outer_results)
         print(f"Final Nested CV Test Loss: {final_score}")
     cleanup_ddp()
 
