@@ -49,7 +49,7 @@ python3 run_simulation.py
 - **`--drug2`, `-d2`** *(Optional)*  
   Second drug. If there are spaces in the drug name, replace them with underscores.
 
-- **`--conc1`, `-c1`**  
+- **`--conc2`, `-c2`**  
   Concentration of the second drug in molar (v4 of the model only).
 
 - **`--smiles2`, `-s2`** *(Optional)*  
