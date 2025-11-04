@@ -1,7 +1,7 @@
 from pubchempy import get_properties, get_cids, get_compounds
 import numpy as np
 import pandas as pd
-from Preprocess_Data_Old import remove_ensembl, CELL_LINES_GENES_FILTERED, name_to_depmap
+from Preprocess_Data_Old import remove_ensembl, name_to_depmap
 import re
 from transformers import RobertaTokenizer
 import torch
@@ -9,8 +9,11 @@ from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from cmapPy.pandasGEXpress.parse import parse
 from time import sleep
+from rdkit import Chem
+import csv
 # from chembl_webresource_client.new_client import new_client
 
+CELL_LINES_GENES_FILTERED = './data/CCLE_genes_filtered.csv'
 CHEMBL_DATASET = './data/chembl_35_chemreps.txt'
 CHEMBL_MAPPINGS = './data/chembl_uniprot_mapping.txt'
 CCLE_MAPPING = './data/sample_info.csv'
@@ -31,6 +34,24 @@ DRUGCOMB_DUPLICATED_REVERSED = './data/DrugComb_duplicated_reversed.csv'
 DOSES = './data/doses_CssSyn2020_1.csv'
 CONC_IC50 = './data/conc_ic50.csv'
 LINCS_RAW = '/home/pareus/nvme0n1p1/GSE92742_Broad_LINCS_Level5_COMPZ.MODZ_n473647x12328.gctx'
+ONEIL = './data/oneil.csv'
+ONEIL_EMBEDDINGS = './data/Oneil_embeddings.pt'
+ONEIL_FILTERED = './data/oneil_filtered.csv'
+ALMANAC = './data/ALMANAC.csv'
+ALMANAC_NAMES = './data/ALMANAC_names.csv'
+ALMANAC_EMBEDDINGS = './data/ALMANAC_embeddings.pt'
+ALMANAC_FILTERED = './data/ALMANAC_filtered.csv'
+ONEIL_ALMANAC = './data/oneil_almanac.csv'
+ONEIL_ALMANAC_CCLE_FILTERED = './data/oneil_almanac_ccle_filtered.csv'
+ONEIL_ALMANAC_EMBEDDINGS = './data/oneil_almanac_embeddings.pt'
+ONEIL_ALMANAC_CCLE_FILTERED_NORMALIZED = './data/oneil_almanac_ccle_filtered_normalized.csv'
+
+
+def canonicalize(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+    return Chem.MolToSmiles(mol, canonical=True)
 
 def get_smiles(drug_name_or_cas, drug_smiles):
     if drug_name_or_cas in drug_smiles:
@@ -43,7 +64,7 @@ def get_smiles(drug_name_or_cas, drug_smiles):
             'name'
         )
         if props:
-            drug_smiles[drug_name_or_cas] = props[0].get('ConnectivitySMILES')
+            drug_smiles[drug_name_or_cas] = canonicalize(props[0].get('ConnectivitySMILES'))
             return drug_smiles[drug_name_or_cas]
     except:
         try:
@@ -53,13 +74,47 @@ def get_smiles(drug_name_or_cas, drug_smiles):
                 'cid'
             )
             if props:
-                drug_smiles[drug_name_or_cas] = props[0].get('ConnectivitySMILES')
+                drug_smiles[drug_name_or_cas] = canonicalize(props[0].get('ConnectivitySMILES'))
                 return drug_smiles[drug_name_or_cas]
         except:
             pass
 
     drug_smiles[drug_name_or_cas] = None
     return None
+
+def get_smiles_almanac(nsc, drug_smiles, mapping):
+    mapped = mapping.get(nsc, [nsc])
+    for drug_name_or_cas in mapped:
+        if drug_name_or_cas in drug_smiles:
+            return drug_name_or_cas, drug_smiles[drug_name_or_cas]
+
+    for drug_name_or_cas in mapped:
+        try:
+            props = get_properties(
+                ['CanonicalSMILES'],
+                drug_name_or_cas,
+                'name'
+            )
+            if props:
+                drug_smiles[drug_name_or_cas] = canonicalize(props[0].get('ConnectivitySMILES'))
+                return drug_name_or_cas, drug_smiles[drug_name_or_cas]
+            else:
+                drug_smiles[drug_name_or_cas] = None
+        except:
+            try:
+                props = get_properties(
+                    ['CanonicalSMILES'],
+                    drug_name_or_cas,
+                    'xrefs/RN'
+                )
+                if props:
+                    drug_smiles[drug_name_or_cas] = canonicalize(props[0].get('ConnectivitySMILES'))
+                    return drug_name_or_cas, drug_smiles[drug_name_or_cas]
+                else:
+                    drug_smiles[drug_name_or_cas] = None
+            except:
+                drug_smiles[drug_name_or_cas] = None
+    return None, None
 
 
 # def get_smiles_chembl(drug_name_or_cas, drug_smiles):
@@ -177,7 +232,7 @@ def remove_dash_n(path):
 
 def drugcomb_tokenized():
     tokenizer = RobertaTokenizer.from_pretrained("DeepChem/ChemBERTa-77M-MLM")
-    drugcomb_df = pd.read_csv(DRUGCOMB_CELLLINE_FILTERED)
+    drugcomb_df = pd.read_csv('./data/oneil.csv')
     
     drug_smiles = {}
 
@@ -209,7 +264,7 @@ def drugcomb_tokenized():
     assert None not in embeddings.values(), "Some drugs were not tokenized correctly."
 
     # Save embeddings
-    torch.save(embeddings, DRUGCOMB_EMBEDDINGS)
+    torch.save(embeddings, './data/Oneil_embeddings.pt')
 
 def drugcomb_tokenized_filter():
     embeddings = torch.load(DRUGCOMB_EMBEDDINGS)
@@ -608,5 +663,215 @@ def viability_only():
     #     drugcomb_df.drop(columns=["ic50_row_log"], inplace=True)
     # drugcomb_df.to_csv(DRUGCOMB_FILTERED_NORMALIZED, index=False)
 
+
+def concat_oneil():
+    mono = pd.read_csv('./data/oneil_mono_processed.csv')
+    combo = pd.read_csv('./data/oneil_combo_processed.csv')
+    mono['drug_col'] = None
+    mono['conc_col'] = None
+    combined = pd.concat([mono, combo], ignore_index=True)
+    combined.to_csv('./data/oneil.csv', index=False)
+    
+
+def preprocess_oneil_mono():
+    db = pd.read_excel('./data/oneil_mono.xlsx')
+    viability_cols = ['viability1', 'viability2', 'viability3', 'viability4', 'viability5', 'viability6']
+    db[viability_cols] = db[viability_cols].apply(pd.to_numeric, errors='coerce')
+    db['viability'] = db[viability_cols].mean(axis=1, skipna=True)
+    db.drop(columns=viability_cols, inplace=True)
+    db.columns = ['BatchID', 'cell_line_name', 'drug_row', 'conc_row', 'mu/muMax', 'X/X0', 'viability']
+    db.to_csv('./data/oneil_mono_processed.csv', index=False)
+
+def preprocess_oneil_combo():
+    db = pd.read_excel('./data/oneil_combo.xls')
+    viability_cols = ['viability1', 'viability2', 'viability3', 'viability4'] 
+    db[viability_cols] = db[viability_cols].apply(pd.to_numeric, errors='coerce')
+    db['viability'] = db[viability_cols].mean(axis=1, skipna=True)
+    db.drop(columns=viability_cols + ['combination_name'], inplace=True)
+    db.columns = ['BatchID', 'cell_line_name', 'drug_row', 'conc_row', 'drug_col', 'conc_col', 'mu/muMax', 'X/X0', 'viability']
+    db.to_csv('./data/oneil_combo_processed.csv', index=False)
+    return
+
+def tokenize_oneil():
+    db = pd.read_csv('./data/oneil.csv')
+    tokenizer = RobertaTokenizer.from_pretrained("DeepChem/ChemBERTa-77M-MLM")
+    
+    drug_smiles = {}
+
+    # Apply get_smiles function to fetch all SMILES strings at once
+    db['drug_row_smiles'] = db['drug_row'].map(lambda d: get_smiles(d, drug_smiles) if pd.notnull(d) else None)
+    db['drug_col_smiles'] = db['drug_col'].map(lambda d: get_smiles(d, drug_smiles) if pd.notnull(d) else None)
+
+    # Identify rows with missing SMILES and drop them
+    to_drop = db[db['drug_row_smiles'].isna() | (db['drug_col_smiles'].isna() & db['drug_row_smiles'].isna())].index
+    db.drop(index=to_drop, inplace=True)
+    
+    # Get unique drugs for tokenization
+    drug_name_to_smiles = pd.concat([
+        db[['drug_row', 'drug_row_smiles']].rename(columns={'drug_row': 'drug', 'drug_row_smiles': 'smiles'}),
+        db[['drug_col', 'drug_col_smiles']].rename(columns={'drug_col': 'drug', 'drug_col_smiles': 'smiles'})
+    ]).dropna().drop_duplicates().set_index('drug')['smiles'].to_dict()
+
+    # Tokenize all unique drugs in batch
+    tokenized_output = tokenizer(list(drug_name_to_smiles.values()), return_tensors="pt", padding="max_length", truncation=True)
+
+    # Extract tokenized input_ids (since tokenizer output is a dictionary)
+    embeddings = {
+        drug: {
+            'input_ids': tokenized_output['input_ids'][i],
+            'attention_mask': tokenized_output['attention_mask'][i]
+        }
+        for i, (drug, smiles) in enumerate(drug_name_to_smiles.items())
+    }
+    assert None not in embeddings.values(), "Some drugs were not tokenized correctly."
+
+    # Save embeddings
+    torch.save(embeddings, ONEIL_EMBEDDINGS)
+    return
+
+def filter_oneil():
+    db = pd.read_csv(ONEIL)
+    embeddings = torch.load(ONEIL_EMBEDDINGS)
+    db = db[db['drug_row'].isin(embeddings.keys())]
+    db = db[db['drug_col'].isin(embeddings.keys()) | db['drug_col'].isna()]
+    db.to_csv(ONEIL_FILTERED, index=False)
+    
+def normalize_oneil():
+    db = pd.read_csv(ONEIL)
+    with open("./data/oneil_params.txt", "a") as f:
+        for col in ["viability"]:
+            mean, std = db[col].mean(), db[col].std()
+            f.write(f"{col} mean: {mean}\n")
+            f.write(f"{col} std: {std}\n")
+            db[col] = (db[col] - mean) / std
+    db.to_csv('./data/oneil_normalized.csv', index=False)
+
+def format_file(input_filename=ALMANAC_NAMES, output_filename="./data/ALMANAC_NAMES.csv"):
+    """
+    Reads a file, separates each line into two columns at the first
+    whitespace, and saves the result as a tab-separated CSV file.
+
+    Args:
+        input_filename (str): The name of the file to read from.
+        output_filename (str): The name of the CSV file to save to.
+    """
+    print(f"Reading from '{input_filename}'...")
+    print(f"Writing to '{output_filename}'...")
+
+    try:
+        with open(input_filename, 'r', encoding='utf-8') as infile, \
+             open(output_filename, 'w', newline='', encoding='utf-8') as outfile:
+
+            # Use csv.writer with a tab delimiter for a TSV/CSV file
+            csv_writer = csv.writer(outfile, delimiter='\t')
+
+            for line in infile:
+                # Strip leading/trailing whitespace from the line
+                clean_line = line.strip()
+
+                if not clean_line:
+                    # Skip empty lines
+                    continue
+
+                # Split the line only at the first occurrence of one or more whitespace characters
+                parts = re.split(r'[ \t\r\n\f\v\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+', clean_line, 1)
+
+                # Ensure there are always two parts to write to the CSV
+                if len(parts) == 2:
+                    column1, column2 = parts
+                    csv_writer.writerow([column1.strip(), column2.strip()])
+                else:
+                    raise ValueError(f"Line does not contain two parts: '{line}'")
+
+        print("File processing complete.")
+
+    except FileNotFoundError:
+        print(f"Error: The file '{input_filename}' was not found.")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+def preprocess_almanac():
+    db = pd.read_csv(ALMANAC, dtype={"drug_row": str, "drug_col": str})
+
+    mapping = pd.read_csv(ALMANAC_NAMES, delimiter='\t', dtype={"NSC": str, "Name": str})
+    mapping['NSC'] = mapping['NSC'].str.strip()
+    mapping.set_index('NSC', inplace=True)
+    
+    mapping = mapping.groupby('NSC')['Name'].apply(list).to_dict()
+    
+    tokenizer = RobertaTokenizer.from_pretrained("DeepChem/ChemBERTa-77M-MLM")
+        
+    drug_smiles = {}
+
+    # Apply get_smiles function to fetch all SMILES strings at once
+    db['drug_row_smiles'] = db['drug_row'].map(lambda d: get_smiles_almanac(d, drug_smiles, mapping)[1] if pd.notnull(d) else None)
+    db['drug_col_smiles'] = db['drug_col'].map(lambda d: get_smiles_almanac(d, drug_smiles, mapping)[1] if pd.notnull(d) else None)
+
+    # Identify rows with missing SMILES and drop them
+    to_drop = db[db['drug_row_smiles'].isna() | (db['drug_col_smiles'].isna() & db['drug_row_smiles'].isna())].index
+    db.drop(index=to_drop, inplace=True)
+    
+    # Get unique drugs for tokenization
+    drug_name_to_smiles = pd.concat([
+        db[['drug_row', 'drug_row_smiles']].rename(columns={'drug_row': 'drug', 'drug_row_smiles': 'smiles'}),
+        db[['drug_col', 'drug_col_smiles']].rename(columns={'drug_col': 'drug', 'drug_col_smiles': 'smiles'})
+    ]).dropna().drop_duplicates().set_index('drug')['smiles'].to_dict()
+
+    # Tokenize all unique drugs in batch
+    tokenized_output = tokenizer(list(drug_name_to_smiles.values()), return_tensors="pt", padding="max_length", truncation=True)
+
+    # Extract tokenized input_ids (since tokenizer output is a dictionary)
+    embeddings = {
+        drug: {
+            'input_ids': tokenized_output['input_ids'][i],
+            'attention_mask': tokenized_output['attention_mask'][i]
+        }
+        for i, (drug, smiles) in enumerate(drug_name_to_smiles.items())
+    }
+    assert None not in embeddings.values(), "Some drugs were not tokenized correctly."
+
+    # Save embeddings
+    torch.save(embeddings, ALMANAC_EMBEDDINGS)
+
+def filter_almanac():
+    db = pd.read_csv(ALMANAC, dtype={"drug_row": str, "drug_col": str})
+    embeddings = torch.load(ALMANAC_EMBEDDINGS)
+    db = db[db['drug_row'].isin(embeddings.keys())]
+    db = db[db['drug_col'].isin(embeddings.keys()) | db['drug_col'].isna()]
+    db.to_csv(ALMANAC_FILTERED, index=False)
+
+def combine_all():
+    db1 = pd.read_csv(ONEIL_FILTERED, dtype={"drug_row": str, "drug_col": str})
+    db2 = pd.read_csv(ALMANAC_FILTERED, dtype={"drug_row": str, "drug_col": str})
+    combined = pd.concat([db1, db2], ignore_index=True)
+    combined.to_csv(ONEIL_ALMANAC, index=False)
+    
+    embeddings1 = torch.load(ONEIL_EMBEDDINGS)
+    embeddings2 = torch.load(ALMANAC_EMBEDDINGS)
+    combined_embeddings = dict(embeddings1)
+    combined_embeddings.update({k: v for k, v in embeddings2.items() if k not in combined_embeddings})
+    print(len(embeddings1), len(embeddings2), len(combined_embeddings))
+    torch.save(combined_embeddings, ONEIL_ALMANAC_EMBEDDINGS)
+
+def cell_line_filter_oneil_almanac():
+    db = pd.read_csv(ONEIL_ALMANAC, dtype={"drug_row": str, "drug_col": str})
+    cell_line_df = pd.read_csv(CCLE_DRUGCOMB_FILTERED, index_col=0)
+    
+    common_cell_lines = set(db['cell_line_name']).intersection(set(cell_line_df.index))
+    
+    db_filtered = db[db['cell_line_name'].isin(common_cell_lines)]
+    db_filtered.to_csv(ONEIL_ALMANAC_CCLE_FILTERED, index=False)
+    
+def normalize_oneil_almanac():
+    db = pd.read_csv(ONEIL_ALMANAC_CCLE_FILTERED, dtype={"drug_row": str, "drug_col": str})
+    with open("./data/oneil_almanac_params.txt", "a") as f:
+        for col in ["viability"]:
+            mean, std = db[col].mean(), db[col].std()
+            f.write(f"{col} mean: {mean}\n")
+            f.write(f"{col} std: {std}\n")
+            db[col] = (db[col] - mean) / std
+    db.to_csv(ONEIL_ALMANAC_CCLE_FILTERED_NORMALIZED, index=False)
+
+
 if __name__ == '__main__':
-    viability_only()
+   normalize_oneil_almanac()

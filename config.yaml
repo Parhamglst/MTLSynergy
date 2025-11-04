@@ -1,4 +1,6 @@
-model_version: 3 # 1: Original MTLSynergy, 2: MTLSynergy with ChemBERTa, 3: MTLSynergy with ChemBERTa and additional outputs
-model_path: "save/MTLSynergy/chp3/fold_4.pth"
+model_version: 4 # 1: Original MTLSynergy, 2: MTLSynergy with ChemBERTa, 3: MTLSynergy with ChemBERTa and additional outputs, 4: MTLSynergy with ChemBERTa and drug concentrations viability preds
+model_path: "save/chp4/fold_2.pth"
 drugAE_path: "save/AutoEncoder/DrugAE_"
 cellAE_path: "save/AutoEncoder/CellLineAE_"
+chemberta_v4_path: "save/chp4/fold_2_chemberta.pth"
+cellAE_v4_path: "save/chp4/fold_2_cellLineAE.pth"

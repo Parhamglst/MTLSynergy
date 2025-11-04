@@ -163,3 +163,52 @@ class MTLSynergy2(Module):
         ic50_out = self.ic50(d1_sen)
         
         return syn_out_1.squeeze(-1), d1_sen_out_1.squeeze(-1), syn_out_2, d1_sen_out_2, bliss_out.squeeze(-1), zip_out.squeeze(-1), hsa_out.squeeze(-1), ic50_out.squeeze(-1)
+    
+
+class MTLSynergy3(Module):
+    def __init__(self, hidden_neurons, input_dim=MTLSynergy_InputDim + 2):
+        super(MTLSynergy3, self).__init__()
+        self.drug_cell_line_layer = Sequential(
+            Linear(input_dim, hidden_neurons[0]),
+            BatchNorm1d(hidden_neurons[0]),
+            ReLU(True),
+            Linear(hidden_neurons[0], hidden_neurons[1]),
+            ReLU(True)
+        )
+        self.combo_layer = Sequential(
+            Linear(hidden_neurons[1], hidden_neurons[2]),
+            ReLU(True),
+            Dropout(0.5),
+            Linear(hidden_neurons[2], 128),
+            ReLU(True)
+        )
+        self.mono_layer = Sequential(
+            Linear(hidden_neurons[1], hidden_neurons[3]),
+            ReLU(True),
+            Dropout(0.5),
+            Linear(hidden_neurons[3], 128),
+            ReLU(True)
+        )
+        
+        # Drug combination viability output layer
+        self.combo_out = Linear(128, 1)
+        
+        # Single agent viability output layer
+        self.mono_out = Linear(128, 1)
+
+        init_weights(self._modules)
+
+    def forward(self, d1_embeddings, d1_conc, d2_embeddings, d2_conc, c_exp):
+        shared_layer = self.drug_cell_line_layer(torch.cat((d1_embeddings, d1_conc, d2_embeddings, d2_conc, c_exp), 1))
+
+        d1_sen = self.mono_layer(shared_layer)
+        syn = self.combo_layer(shared_layer)
+
+        combo_out = self.combo_out(syn)
+
+        mono_out = self.mono_out(d1_sen)
+
+        return  mono_out.squeeze(-1), combo_out.squeeze(-1)
+    
+def chemprop_chemberta():
+    pass

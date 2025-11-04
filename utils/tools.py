@@ -17,7 +17,7 @@ class EarlyStopping():
 
     def __call__(self, val_loss, model, chemberta_model, cellLineEncoder, save_path, rank):
         if rank == 0:
-            if self.best_loss == None:
+            if self.best_loss is None:
                 self.best_loss = val_loss
                 torch.save(model.state_dict(), save_path)
                 torch.save(chemberta_model.state_dict(), save_path.replace('.pt', '_chemberta.pt'))
@@ -38,8 +38,6 @@ class EarlyStopping():
                 if self.counter >= self.patience:
                     print('INFO: Early stopping')
                     self.early_stop = True
-        if dist.is_initialized():
-            dist.barrier()
 
 
 def set_seed(seed=1):
